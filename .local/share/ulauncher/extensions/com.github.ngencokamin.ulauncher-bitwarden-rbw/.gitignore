@@ -1,0 +1,9 @@
+*tmp*
+__pycache__
+.cache
+.mypy_cache
+*.pyc
+*.pyo
+.tool-versions
+images/icons/
+e2e.log

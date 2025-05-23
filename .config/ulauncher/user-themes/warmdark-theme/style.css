@@ -1,0 +1,30 @@
+window {
+    background-color: #0e0d0c;
+    border: 2px solid #fbbf24;
+    border-radius: 12px;
+    font-family: "JetBrainsMono Nerd Font", sans-serif;
+    color: #ffe9a7;
+}
+
+#search-entry {
+    background-color: #1b1a19;
+    color: #ffe9a7;
+    border: none;
+    padding: 8px;
+    font-size: 14px;
+    border-radius: 8px;
+}
+
+.row {
+    background-color: transparent;
+    color: #ffe9a7;
+    padding: 8px;
+    margin-bottom: 2px;
+    border-radius: 6px;
+}
+
+.row:selected {
+    background-color: #fbbf24;
+    color: #0e0d0c;
+}
+

@@ -1,0 +1,72 @@
+{
+    "com.github.abhishekmj303.ulauncher-playerctl": {
+        "id": "com.github.abhishekmj303.ulauncher-playerctl",
+        "url": "https://github.com/abhishekmj303/ulauncher-playerctl",
+        "updated_at": "2025-05-20T20:05:29.741146",
+        "last_commit": "5f52e6c949ee9793ba60b5385df4744b134c3369",
+        "last_commit_time": "2023-06-23T15:13:13"
+    },
+    "com.github.the-lay.ulauncher-spotify-api": {
+        "id": "com.github.the-lay.ulauncher-spotify-api",
+        "url": "https://github.com/the-lay/ulauncher-spotify-api",
+        "updated_at": "2025-05-20T20:10:04.315022",
+        "last_commit": "7ffedbe72ea62f797d13be5dd90472ce26b7eb3d",
+        "last_commit_time": "2023-07-29T09:23:34"
+    },
+    "com.github.tuanpham-dev.ulauncher-better-calculator": {
+        "id": "com.github.tuanpham-dev.ulauncher-better-calculator",
+        "url": "https://github.com/tuanpham-dev/ulauncher-better-calculator",
+        "updated_at": "2025-05-20T20:20:14.952146",
+        "last_commit": "48f0592a2a8ac9ec2589a06b562141e1a2d9b25f",
+        "last_commit_time": "2023-04-24T13:55:30"
+    },
+    "com.github.ngencokamin.ulauncher-bitwarden-rbw": {
+        "id": "com.github.ngencokamin.ulauncher-bitwarden-rbw",
+        "url": "https://github.com/ngencokamin/ulauncher-bitwarden-rbw",
+        "updated_at": "2025-05-20T20:47:54.982217",
+        "last_commit": "14a82bc06a0f79c0d286584372848e420c9baaa2",
+        "last_commit_time": "2025-05-09T15:16:31"
+    },
+    "com.github.ulauncher.ulauncher-emoji": {
+        "id": "com.github.ulauncher.ulauncher-emoji",
+        "url": "https://github.com/Ulauncher/ulauncher-emoji",
+        "updated_at": "2025-05-20T20:50:21.794065",
+        "last_commit": "827cfe5e1d2f89f742f811f981759787b0654fa9",
+        "last_commit_time": "2023-11-04T18:37:13"
+    },
+    "com.github.rkarami.ulauncher-gitmoji": {
+        "id": "com.github.rkarami.ulauncher-gitmoji",
+        "url": "https://github.com/rkarami/ulauncher-gitmoji",
+        "updated_at": "2025-05-20T20:50:42.056733",
+        "last_commit": "59ad2d0aa89696d41a29ce0efc845f2138f47b6e",
+        "last_commit_time": "2019-09-26T13:21:43"
+    },
+    "com.github.fsevenm.ulauncher-verb-forms-checker": {
+        "id": "com.github.fsevenm.ulauncher-verb-forms-checker",
+        "url": "https://github.com/fsevenm/ulauncher-verb-forms-checker",
+        "updated_at": "2025-05-20T20:51:00.389050",
+        "last_commit": "336f894a306aef80c5873a56b5b9331bbc401712",
+        "last_commit_time": "2021-01-15T19:07:59"
+    },
+    "com.github.troublor.ulauncher-numconverter": {
+        "id": "com.github.troublor.ulauncher-numconverter",
+        "url": "https://github.com/Troublor/ulauncher-numconverter",
+        "updated_at": "2025-05-20T20:51:15.937883",
+        "last_commit": "98d5e01d82671eedc98c000053980ae7ceb4ea28",
+        "last_commit_time": "2021-09-29T13:19:39"
+    },
+    "com.github.rootwork.ulauncher-symbol": {
+        "id": "com.github.rootwork.ulauncher-symbol",
+        "url": "https://github.com/rootwork/ulauncher-symbol",
+        "updated_at": "2025-05-20T20:51:35.167132",
+        "last_commit": "c5d7ab5c94c1b418cb1f8a9161be169a29c65658",
+        "last_commit_time": "2022-02-24T01:17:09"
+    },
+    "com.github.mepowerleo10.ulauncher-dict-en": {
+        "id": "com.github.mepowerleo10.ulauncher-dict-en",
+        "url": "https://github.com/mepowerleo10/ulauncher-dict-en",
+        "updated_at": "2025-05-20T20:52:00.247053",
+        "last_commit": "78babcd05dff825a580a7192fc14ee73775784f2",
+        "last_commit_time": "2023-04-03T09:26:35"
+    }
+}

@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist gettext-domain="switcher">
+    <schema id="org.gnome.shell.extensions.switcher" path="/org/gnome/shell/extensions/switcher/">
+        <key type="as" name="show-launcher">
+            <default><![CDATA[['<Super>x']]]></default>
+            <summary>Global key combination to show the launcher.</summary>
+        </key>
+        <key type="as" name="show-switcher">
+            <default><![CDATA[['<Super>w']]]></default>
+            <summary>Global key combination to show the switcher.</summary>
+        </key>
+        <key type="b" name="activate-immediately">
+            <default>false</default>
+            <summary>Whether to activate immediately when there is just one result.</summary>
+        </key>
+        <key type="u" name="matching">
+            <default>0</default>
+            <summary>Pattern matching algorithm: 0=Substring, 1=Fuzzy</summary>
+        </key>
+        <key type="u" name="ordering">
+            <default>0</default>
+            <summary>Ordering criteria: 0=Last focused, 1=Relevancy</summary>
+        </key>
+        <key type="u" name="font-size">
+            <default>32</default>
+            <summary>Font size</summary>
+        </key>
+        <key type="u" name="icon-size">
+            <default>32</default>
+            <summary>Icon size</summary>
+        </key>
+        <key type="u" name="max-width-percentage">
+            <default>80</default>
+            <summary>Percentage of screen width to take</summary>
+        </key>
+        <key type="u" name="activate-by-key">
+            <default>0</default>
+            <summary>Activate by pressing the index in the list: 0=No, 1=Function keys, 2=Number keys</summary>
+        </key>
+        <key type="u" name="activate-after-ms">
+            <default>0</default>
+            <summary>Activate "immediately" after this many milliseconds</summary>
+        </key>
+        <key type="b" name="workspace-indicator">
+            <default>false</default>
+            <summary>Whether to show a workspace indicator for each app</summary>
+        </key>
+        <key type="b" name="only-current-workspace">
+            <default>false</default>
+            <summary>Whether to show just the apps in the current workspace</summary>
+        </key>
+        <key type="b" name="fade-enable">
+            <default>false</default>
+            <summary>Toggle Window Fade</summary>
+        </key>
+        <key type="b" name="on-active-display">
+            <default>false</default>
+            <summary>Should the Switcher appear on the active display instead of the primary</summary>
+        </key>
+        <key type="b" name="never-show-onboarding">
+            <default>false</default>
+            <summary>Never show onboarding</summary>
+        </key>
+        <key type="u" name="onboarding-1">
+            <default>0</default>
+            <summary>0 for not shown, 1 for shown and never again, 2 for shown but show again</summary>
+        </key>
+        <key type="u" name="onboarding-2">
+            <default>0</default>
+            <summary>0 for not shown, 1 for shown and never again, 2 for shown but show again</summary>
+        </key>
+        <key type="u" name="onboarding-3">
+            <default>0</default>
+            <summary>0 for not shown, 1 for shown and never again, 2 for shown but show again</summary>
+        </key>
+        <key type="u" name="onboarding-4">
+            <default>0</default>
+            <summary>0 for not shown, 1 for shown and never again, 2 for shown but show again</summary>
+        </key>
+        <key type="u" name="onboarding-5">
+            <default>0</default>
+            <summary>0 for not shown, 1 for shown and never again, 2 for shown but show again</summary>
+        </key>
+        <key type="u" name="onboarding-6">
+            <default>0</default>
+            <summary>0 for not shown, 1 for shown and never again, 2 for shown but show again</summary>
+        </key>
+        <key type="s" name="launcher-stats">
+          <default>"{}"</default>
+          <summary>Launcher stats stored as json.</summary>
+        </key>
+        <key type="b" name="show-original-names">
+          <default>false</default>
+          <summary>Should original language names be shown?</summary>
+        </key>
+        <key type="b" name="show-executables">
+          <default>false</default>
+          <summary>Should names of executables be shown?</summary>
+        </key>
+    </schema>
+</schemalist>

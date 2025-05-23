@@ -1,0 +1,137 @@
+2025-05-22 18:11:56,163 | INFO | ulauncher: main() | Ulauncher version 5.15.7
+2025-05-22 18:11:56,163 | INFO | ulauncher: main() | Extension API version 2.0.0
+2025-05-22 18:11:56,163 | INFO | ulauncher: main() | GTK+ 3.24.49
+2025-05-22 18:11:56,163 | INFO | ulauncher: main() | Is Wayland: True
+2025-05-22 18:11:56,163 | INFO | ulauncher: main() | Wayland compatibility: off
+2025-05-22 18:11:56,178 | DEBUG | ulauncher.ui.windows.Builder: __init__() | consider using a pythonic name instead of design name 'input-box'
+2025-05-22 18:11:56,181 | DEBUG | ulauncher.ui.windows.Builder: do_connect() | connect builder by name 'ulauncher_window','destroy', 'on_destroy'
+2025-05-22 18:11:56,181 | DEBUG | ulauncher.ui.windows.Builder: do_connect() | connect builder by name 'ulauncher_window','focus_in_event', 'on_focus_in_event'
+2025-05-22 18:11:56,181 | DEBUG | ulauncher.ui.windows.Builder: do_connect() | connect builder by name 'ulauncher_window','focus_out_event', 'on_focus_out_event'
+2025-05-22 18:11:56,182 | DEBUG | ulauncher.ui.windows.Builder: do_connect() | connect builder by name 'input','key_press_event', 'on_input_key_press_event'
+2025-05-22 18:11:56,182 | DEBUG | ulauncher.ui.windows.Builder: log_unconnected_functions() | Not connected to builder 'on_input_changed'
+2025-05-22 18:11:56,182 | DEBUG | ulauncher.ui.windows.Builder: log_unconnected_functions() | Not connected to builder 'on_mnu_about_activate'
+2025-05-22 18:11:56,182 | DEBUG | ulauncher.ui.windows.Builder: log_unconnected_functions() | Not connected to builder 'on_mnu_close_activate'
+2025-05-22 18:11:56,182 | DEBUG | ulauncher.ui.windows.Builder: log_unconnected_functions() | Not connected to builder 'on_mnu_preferences_activate'
+2025-05-22 18:11:56,182 | DEBUG | ulauncher.ui.windows.Builder: log_unconnected_functions() | Not connected to builder 'on_preferences_dialog_destroyed'
+2025-05-22 18:11:56,183 | DEBUG | ulauncher.utils.display: get_screens() | Found 2 monitor(s)
+2025-05-22 18:11:56,183 | DEBUG | ulauncher.utils.display: get_screens() |   Monitor 0 - X: 0, Y: 0, W: 3840, H: 2160
+2025-05-22 18:11:56,183 | DEBUG | ulauncher.utils.display: get_screens() |   Monitor 1 - X: 3840, Y: 210, W: 3072, H: 1728
+2025-05-22 18:11:56,193 | DEBUG | ulauncher.ui.windows.UlauncherWindow: show_results() | render 0 results
+2025-05-22 18:11:56,195 | INFO | ulauncher.search.apps.app_watcher: start() | Started scanning desktop dirs
+2025-05-22 18:11:56,195 | INFO | ulauncher.api.server.ExtensionServer: _start_thread() | Starting WS server on port 5054
+2025-05-22 18:11:56,207 | INFO | ulauncher.utils.desktop.reader: find_apps_cached() | Found 97 apps in cache
+2025-05-22 18:11:56,209 | INFO | ulauncher.api.server.ExtensionRunner: _run_process() | Extension "com.github.abhishekmj303.ulauncher-playerctl" started. PID 4360
+2025-05-22 18:11:56,210 | INFO | ulauncher.api.server.ExtensionRunner: _run_process() | Extension "com.github.the-lay.ulauncher-spotify-api" started. PID 4362
+2025-05-22 18:11:56,211 | INFO | ulauncher.api.server.ExtensionRunner: _run_process() | Extension "com.github.tuanpham-dev.ulauncher-better-calculator" started. PID 4364
+2025-05-22 18:11:56,212 | INFO | ulauncher.api.server.ExtensionRunner: _run_process() | Extension "com.github.ngencokamin.ulauncher-bitwarden-rbw" started. PID 4366
+2025-05-22 18:11:56,214 | INFO | ulauncher.api.server.ExtensionRunner: _run_process() | Extension "com.github.ulauncher.ulauncher-emoji" started. PID 4368
+2025-05-22 18:11:56,215 | INFO | ulauncher.api.server.ExtensionRunner: _run_process() | Extension "com.github.rkarami.ulauncher-gitmoji" started. PID 4370
+2025-05-22 18:11:56,215 | INFO | ulauncher.utils.desktop.reader: read_desktop_file() | Could not read "/var/lib/flatpak/exports/share/applications/com.jeffser.Alpaca.SearchProvider.desktop": constructor returned NULL
+2025-05-22 18:11:56,217 | INFO | ulauncher.api.server.ExtensionRunner: _run_process() | Extension "com.github.fsevenm.ulauncher-verb-forms-checker" started. PID 4372
+2025-05-22 18:11:56,221 | INFO | ulauncher.api.server.ExtensionRunner: _run_process() | Extension "com.github.troublor.ulauncher-numconverter" started. PID 4374
+2025-05-22 18:11:56,222 | INFO | ulauncher.api.server.ExtensionRunner: _run_process() | Extension "com.github.rootwork.ulauncher-symbol" started. PID 4376
+2025-05-22 18:11:56,225 | INFO | ulauncher.api.server.ExtensionRunner: _run_process() | Extension "com.github.mepowerleo10.ulauncher-dict-en" started. PID 4379
+2025-05-22 18:11:56,241 | INFO | ulauncher.utils.desktop.reader: read_desktop_file() | Could not read "/usr/share/applications/org.kde.kiod6.desktop": constructor returned NULL
+2025-05-22 18:11:56,242 | INFO | ulauncher.utils.desktop.reader: read_desktop_file() | Could not read "/usr/share/applications/kcm_netpref.desktop": constructor returned NULL
+2025-05-22 18:11:56,242 | INFO | ulauncher.utils.desktop.reader: read_desktop_file() | Could not read "/usr/share/applications/kcm_proxy.desktop": constructor returned NULL
+2025-05-22 18:11:56,248 | INFO | ulauncher.utils.desktop.reader: find_apps_cached() | Found 97 apps in the system
+2025-05-22 18:11:56,248 | INFO | ulauncher.search.apps.app_watcher: start() | Scanned desktop dirs in 0.05 seconds
+2025-05-22 18:11:56,249 | ERROR | ulauncher.api.server.ExtensionRunner: _run_process() | Extension "com.github.tuanpham-dev.ulauncher-better-calculator" was terminated with code 1
+2025-05-22 18:11:56,252 | DEBUG | ulauncher.search.apps.app_watcher: start() | Start watching desktop files...
+2025-05-22 18:11:56,259 | DEBUG | ulauncher.utils.display: get_screens() | Found 2 monitor(s)
+2025-05-22 18:11:56,259 | DEBUG | ulauncher.utils.display: get_screens() |   Monitor 0 - X: 0, Y: 0, W: 1920, H: 1080
+2025-05-22 18:11:56,259 | DEBUG | ulauncher.utils.display: get_screens() |   Monitor 1 - X: 1920, Y: 105, W: 1536, H: 864
+2025-05-22 18:11:56,291 | DEBUG | ulauncher.ui.windows.UlauncherWindow: show_results() | render 5 results
+2025-05-22 18:11:56,291 | INFO | ulauncher.ui.windows.UlauncherWindow: bind_show_app_hotkey() | Trying to bind app hotkey: <Primary>space
+2025-05-22 18:11:56,436 | INFO | ulauncher.api.server.ExtensionController: handleConnected() | Extension "com.github.abhishekmj303.ulauncher-playerctl" connected
+2025-05-22 18:11:56,437 | DEBUG | ulauncher.api.server.ExtensionController: _send_event() | Send event PreferencesEvent to "com.github.abhishekmj303.ulauncher-playerctl"
+2025-05-22 18:11:56,462 | INFO | ulauncher.api.server.ExtensionController: handleConnected() | Extension "com.github.ulauncher.ulauncher-emoji" connected
+2025-05-22 18:11:56,462 | DEBUG | ulauncher.api.server.ExtensionController: _send_event() | Send event PreferencesEvent to "com.github.ulauncher.ulauncher-emoji"
+2025-05-22 18:11:56,462 | INFO | ulauncher.api.server.ExtensionController: handleConnected() | Extension "com.github.troublor.ulauncher-numconverter" connected
+2025-05-22 18:11:56,463 | DEBUG | ulauncher.api.server.ExtensionController: _send_event() | Send event PreferencesEvent to "com.github.troublor.ulauncher-numconverter"
+2025-05-22 18:11:56,466 | INFO | ulauncher.api.server.ExtensionController: handleConnected() | Extension "com.github.rkarami.ulauncher-gitmoji" connected
+2025-05-22 18:11:56,466 | DEBUG | ulauncher.api.server.ExtensionController: _send_event() | Send event PreferencesEvent to "com.github.rkarami.ulauncher-gitmoji"
+2025-05-22 18:11:56,629 | INFO | ulauncher.api.server.ExtensionController: handleConnected() | Extension "com.github.the-lay.ulauncher-spotify-api" connected
+2025-05-22 18:11:56,629 | DEBUG | ulauncher.api.server.ExtensionController: _send_event() | Send event PreferencesEvent to "com.github.the-lay.ulauncher-spotify-api"
+2025-05-22 18:11:56,642 | INFO | ulauncher.api.server.ExtensionController: handleConnected() | Extension "com.github.ngencokamin.ulauncher-bitwarden-rbw" connected
+2025-05-22 18:11:56,642 | DEBUG | ulauncher.api.server.ExtensionController: _send_event() | Send event PreferencesEvent to "com.github.ngencokamin.ulauncher-bitwarden-rbw"
+2025-05-22 18:11:56,643 | INFO | ulauncher.api.server.ExtensionController: handleConnected() | Extension "com.github.fsevenm.ulauncher-verb-forms-checker" connected
+2025-05-22 18:11:56,644 | DEBUG | ulauncher.api.server.ExtensionController: _send_event() | Send event PreferencesEvent to "com.github.fsevenm.ulauncher-verb-forms-checker"
+2025-05-22 18:11:56,720 | INFO | ulauncher.api.server.ExtensionController: handleConnected() | Extension "com.github.mepowerleo10.ulauncher-dict-en" connected
+2025-05-22 18:11:56,720 | DEBUG | ulauncher.api.server.ExtensionController: _send_event() | Send event PreferencesEvent to "com.github.mepowerleo10.ulauncher-dict-en"
+2025-05-22 18:11:57,064 | ERROR | ulauncher.api.server.ExtensionRunner: _run_process() | Extension "com.github.rootwork.ulauncher-symbol" was terminated with code 1
+2025-05-22 18:12:36,514 | DEBUG | ulauncher.utils.display: get_screens() | Found 2 monitor(s)
+2025-05-22 18:12:36,514 | DEBUG | ulauncher.utils.display: get_screens() |   Monitor 0 - X: 0, Y: 0, W: 1920, H: 1080
+2025-05-22 18:12:36,514 | DEBUG | ulauncher.utils.display: get_screens() |   Monitor 1 - X: 1920, Y: 105, W: 1536, H: 864
+2025-05-22 18:12:36,517 | DEBUG | ulauncher.ui.windows.UlauncherWindow: show_results() | render 5 results
+2025-05-22 18:12:37,416 | WARNING | ulauncher.utils.image_loader: check_icon_name() | Icon theme is broken or incomplete. Substituting "zellij" for "zellij"
+2025-05-22 18:12:37,504 | INFO | ulauncher.utils.image_loader: get_app_icon_pixbuf() | Could not load icon for pinokio. E: gtk-icon-theme-error-quark: Icon 'pinokio' not present in theme Adwaita-yellow (0)
+2025-05-22 18:12:37,508 | WARNING | ulauncher.utils.image_loader: check_icon_name() | Icon "java24-openjdk" completely missing from icon theme. Consider switching icon theme.
+2025-05-22 18:12:37,509 | INFO | ulauncher.utils.image_loader: check_icon_name() | Falling back on default icon "application-x-executable"
+2025-05-22 18:12:37,511 | WARNING | ulauncher.utils.image_loader: check_icon_name() | Icon "java24-openjdk" completely missing from icon theme. Consider switching icon theme.
+2025-05-22 18:12:37,511 | INFO | ulauncher.utils.image_loader: check_icon_name() | Falling back on default icon "application-x-executable"
+2025-05-22 18:12:37,512 | WARNING | ulauncher.utils.image_loader: check_icon_name() | Icon theme is broken or incomplete. Substituting "droidcam" for "droidcam"
+2025-05-22 18:12:37,514 | WARNING | ulauncher.utils.image_loader: check_icon_name() | Icon theme is broken or incomplete. Substituting "iriunwebcam" for "iriunwebcam"
+2025-05-22 18:12:37,528 | WARNING | ulauncher.utils.image_loader: check_icon_name() | Icon theme is broken or incomplete. Substituting "fish" for "fish"
+2025-05-22 18:12:37,565 | DEBUG | ulauncher.ui.windows.UlauncherWindow: show_results() | render 9 results
+2025-05-22 18:12:37,570 | DEBUG | ulauncher.ui.windows.UlauncherWindow: show_results() | render 9 results
+2025-05-22 18:12:37,573 | DEBUG | ulauncher.ui.windows.UlauncherWindow: show_results() | render 4 results
+2025-05-22 18:12:37,700 | DEBUG | ulauncher.ui.windows.UlauncherWindow: show_results() | render 4 results
+2025-05-22 18:12:38,184 | WARNING | ulauncher.api.shared.action.LaunchAppAction: run() | Will attempt to launch the app using systemd-run with --scope argument
+2025-05-22 18:12:38,185 | WARNING | ulauncher.api.shared.action.LaunchAppAction: run() | This prevents the apps from terminating if Ulauncher crashes or is restarted.
+2025-05-22 18:12:38,185 | WARNING | ulauncher.api.shared.action.LaunchAppAction: run() | On some systems with outdated systemd or incorrect permissions this doesn't work.
+2025-05-22 18:12:38,185 | WARNING | ulauncher.api.shared.action.LaunchAppAction: run() | If this happens to you, don't run Ulauncher from systemd.
+2025-05-22 18:12:38,185 | INFO | ulauncher.api.shared.action.LaunchAppAction: run() | Run application Deskflow (/usr/share/applications/org.deskflow.deskflow.desktop) Exec ['systemd-run', '--user', '--scope', 'deskflow']
+2025-05-22 18:12:38,201 | DEBUG | ulauncher.ui.windows.UlauncherWindow: show_results() | render 5 results
+2025-05-22 18:13:50,266 | INFO | ulauncher.search.apps.app_watcher: _add_file_sync() | New app was added "Dosage" (/var/lib/flatpak/exports/share/applications/io.github.diegopvlk.Dosage.desktop)
+2025-05-22 18:14:34,421 | DEBUG | ulauncher.utils.display: get_screens() | Found 2 monitor(s)
+2025-05-22 18:14:34,421 | DEBUG | ulauncher.utils.display: get_screens() |   Monitor 0 - X: 0, Y: 0, W: 1920, H: 1080
+2025-05-22 18:14:34,421 | DEBUG | ulauncher.utils.display: get_screens() |   Monitor 1 - X: 1920, Y: 105, W: 1536, H: 864
+2025-05-22 18:14:34,425 | DEBUG | ulauncher.ui.windows.UlauncherWindow: show_results() | render 5 results
+2025-05-22 18:14:34,739 | DEBUG | ulauncher.ui.windows.UlauncherWindow: show_results() | render 9 results
+2025-05-22 18:14:35,163 | DEBUG | ulauncher.ui.windows.UlauncherWindow: show_results() | render 9 results
+2025-05-22 18:14:35,292 | DEBUG | ulauncher.ui.windows.UlauncherWindow: show_results() | render 3 results
+2025-05-22 18:14:35,358 | DEBUG | ulauncher.ui.windows.UlauncherWindow: show_results() | render 4 results
+2025-05-22 18:14:35,522 | DEBUG | ulauncher.ui.windows.UlauncherWindow: show_results() | render 3 results
+2025-05-22 18:14:35,600 | DEBUG | ulauncher.ui.windows.UlauncherWindow: show_results() | render 3 results
+2025-05-22 18:14:35,763 | WARNING | ulauncher.api.shared.action.LaunchAppAction: run() | Will attempt to launch the app using systemd-run with --scope argument
+2025-05-22 18:14:35,763 | WARNING | ulauncher.api.shared.action.LaunchAppAction: run() | This prevents the apps from terminating if Ulauncher crashes or is restarted.
+2025-05-22 18:14:35,763 | WARNING | ulauncher.api.shared.action.LaunchAppAction: run() | On some systems with outdated systemd or incorrect permissions this doesn't work.
+2025-05-22 18:14:35,763 | WARNING | ulauncher.api.shared.action.LaunchAppAction: run() | If this happens to you, don't run Ulauncher from systemd.
+2025-05-22 18:14:35,763 | INFO | ulauncher.api.shared.action.LaunchAppAction: run() | Run application Dosage (/var/lib/flatpak/exports/share/applications/io.github.diegopvlk.Dosage.desktop) Exec ['systemd-run', '--user', '--scope', '/usr/bin/flatpak', 'run', '--branch=stable', '--arch=x86_64', '--command=io.github.diegopvlk.Dosage', 'io.github.diegopvlk.Dosage']
+2025-05-22 18:14:35,776 | DEBUG | ulauncher.ui.windows.UlauncherWindow: show_results() | render 5 results
+2025-05-22 22:11:29,767 | DEBUG | ulauncher.utils.display: get_screens() | Found 1 monitor(s)
+2025-05-22 22:11:29,773 | DEBUG | ulauncher.utils.display: get_screens() |   Monitor 0 - X: 0, Y: 0, W: 1536, H: 864
+2025-05-22 22:11:29,800 | DEBUG | ulauncher.ui.windows.UlauncherWindow: show_results() | render 5 results
+2025-05-22 22:11:30,460 | DEBUG | ulauncher.ui.windows.UlauncherWindow: show_results() | render 9 results
+2025-05-22 22:11:30,590 | DEBUG | ulauncher.ui.windows.UlauncherWindow: show_results() | render 6 results
+2025-05-22 22:11:30,716 | DEBUG | ulauncher.ui.windows.UlauncherWindow: show_results() | render 5 results
+2025-05-22 22:11:30,862 | DEBUG | ulauncher.ui.windows.UlauncherWindow: show_results() | render 5 results
+2025-05-22 22:11:32,252 | WARNING | ulauncher.api.shared.action.LaunchAppAction: run() | Will attempt to launch the app using systemd-run with --scope argument
+2025-05-22 22:11:32,253 | WARNING | ulauncher.api.shared.action.LaunchAppAction: run() | This prevents the apps from terminating if Ulauncher crashes or is restarted.
+2025-05-22 22:11:32,253 | WARNING | ulauncher.api.shared.action.LaunchAppAction: run() | On some systems with outdated systemd or incorrect permissions this doesn't work.
+2025-05-22 22:11:32,253 | WARNING | ulauncher.api.shared.action.LaunchAppAction: run() | If this happens to you, don't run Ulauncher from systemd.
+2025-05-22 22:11:32,253 | INFO | ulauncher.api.shared.action.LaunchAppAction: run() | Run application ChatGPT (/home/kevin/.local/share/applications/com.google.Chrome.flextop.chrome-cadlkienfkclaiaibeoongdcgmdikeeg-Default.desktop) Exec ['systemd-run', '--user', '--scope', 'flatpak', 'run', '--command=/app/bin/chrome', 'com.google.Chrome', '--profile-directory=Default', '--app-id=cadlkienfkclaiaibeoongdcgmdikeeg']
+2025-05-22 22:11:32,281 | DEBUG | ulauncher.ui.windows.UlauncherWindow: show_results() | render 5 results
+2025-05-22 22:11:35,937 | DEBUG | ulauncher.utils.display: get_screens() | Found 1 monitor(s)
+2025-05-22 22:11:35,937 | DEBUG | ulauncher.utils.display: get_screens() |   Monitor 0 - X: 0, Y: 0, W: 1536, H: 864
+2025-05-22 22:11:35,944 | DEBUG | ulauncher.ui.windows.UlauncherWindow: show_results() | render 5 results
+2025-05-22 22:11:36,653 | DEBUG | ulauncher.ui.windows.UlauncherWindow: show_results() | render 9 results
+2025-05-22 22:11:36,766 | DEBUG | ulauncher.ui.windows.UlauncherWindow: show_results() | render 2 results
+2025-05-22 22:11:37,955 | WARNING | ulauncher.api.shared.action.LaunchAppAction: run() | Will attempt to launch the app using systemd-run with --scope argument
+2025-05-22 22:11:37,956 | WARNING | ulauncher.api.shared.action.LaunchAppAction: run() | This prevents the apps from terminating if Ulauncher crashes or is restarted.
+2025-05-22 22:11:37,956 | WARNING | ulauncher.api.shared.action.LaunchAppAction: run() | On some systems with outdated systemd or incorrect permissions this doesn't work.
+2025-05-22 22:11:37,956 | WARNING | ulauncher.api.shared.action.LaunchAppAction: run() | If this happens to you, don't run Ulauncher from systemd.
+2025-05-22 22:11:37,956 | INFO | ulauncher.api.shared.action.LaunchAppAction: run() | Run application Bitwarden (/var/lib/flatpak/exports/share/applications/com.bitwarden.desktop.desktop) Exec ['systemd-run', '--user', '--scope', '/usr/bin/flatpak', 'run', '--branch=stable', '--arch=x86_64', '--command=bitwarden', '--file-forwarding', 'com.bitwarden.desktop', '@@u', '@@']
+2025-05-22 22:11:37,977 | DEBUG | ulauncher.ui.windows.UlauncherWindow: show_results() | render 5 results
+2025-05-22 22:11:50,858 | DEBUG | ulauncher.utils.display: get_screens() | Found 1 monitor(s)
+2025-05-22 22:11:50,858 | DEBUG | ulauncher.utils.display: get_screens() |   Monitor 0 - X: 0, Y: 0, W: 1536, H: 864
+2025-05-22 22:11:50,865 | DEBUG | ulauncher.ui.windows.UlauncherWindow: show_results() | render 5 results
+2025-05-22 22:11:51,556 | DEBUG | ulauncher.ui.windows.UlauncherWindow: show_results() | render 9 results
+2025-05-22 22:11:51,926 | DEBUG | ulauncher.ui.windows.UlauncherWindow: show_results() | render 4 results
+2025-05-22 22:11:52,387 | DEBUG | ulauncher.ui.windows.UlauncherWindow: show_results() | render 3 results
+2025-05-22 22:11:52,624 | DEBUG | ulauncher.ui.windows.UlauncherWindow: show_results() | render 4 results
+2025-05-22 22:11:52,771 | DEBUG | ulauncher.ui.windows.UlauncherWindow: show_results() | render 9 results
+2025-05-22 22:11:52,857 | DEBUG | ulauncher.ui.windows.UlauncherWindow: show_results() | render 2 results
+2025-05-22 22:11:53,078 | DEBUG | ulauncher.api.server.ExtensionController: _send_event() | Send event KeywordQueryEvent to "com.github.ngencokamin.ulauncher-bitwarden-rbw"
+2025-05-22 22:11:53,280 | DEBUG | ulauncher.ui.windows.UlauncherWindow: show_results() | render 1 results

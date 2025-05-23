@@ -1,0 +1,55 @@
+<?xml version="1.0"?>
+<application-state>
+  <context id="">
+    <application id="org.gnome.Crosswords.desktop" score="2.5" last-seen="1747918565"/>
+    <application id="kitty.desktop" score="6342.625" last-seen="1747964113"/>
+    <application id="org.gnome.TextEditor.desktop" score="35.75" last-seen="1747756768"/>
+    <application id="com.google.Chrome.flextop.chrome-cadlkienfkclaiaibeoongdcgmdikeeg-Default.desktop" score="2443.25" last-seen="1747963798"/>
+    <application id="org.gnome.SystemMonitor.desktop" score="0.5" last-seen="1747371234"/>
+    <application id="xdg-desktop-portal-gnome.desktop" score="0.75" last-seen="1747948360"/>
+    <application id="org.gnome.Weather.desktop" score="1" last-seen="1747349100"/>
+    <application id="com.google.Chrome.flextop.chrome-hnpfjngllnobngcgfapefoaidbinmjnm-Default.desktop" score="3823.5" last-seen="1747964114"/>
+    <application id="org.gnome.tweaks.desktop" score="31.25" last-seen="1747762547"/>
+    <application id="com.mattjakeman.ExtensionManager.desktop" score="74.375" last-seen="1747793190"/>
+    <application id="io.gitlab.theevilskeleton.Upscaler.desktop" score="3.5" last-seen="1747790925"/>
+    <application id="org.gnome.Shell.Extensions.GSConnect.Preferences.desktop" score="19" last-seen="1747609739"/>
+    <application id="org.gnome.gitlab.somas.Apostrophe.desktop" score="14" last-seen="1747632728"/>
+    <application id="iriunwebcam.desktop" score="0.5" last-seen="1747504724"/>
+    <application id="mysql-workbench.desktop" score="31" last-seen="1747597383"/>
+    <application id="io.github.atsb.Doom64EX-Plus.desktop" score="0.5" last-seen="1747918404"/>
+    <application id="com.spotify.Client.desktop" score="3789.5" last-seen="1747962270"/>
+    <application id="ca.desrt.dconf-editor.desktop" score="1.5" last-seen="1747633801"/>
+    <application id="com.anydesk.Anydesk.desktop" score="3304.75" last-seen="1747948564"/>
+    <application id="com.google.Chrome.flextop.chrome-ekhlpblfkfmoglggboefamnbpegbnpia-Default.desktop" score="77" last-seen="1747627208"/>
+    <application id="com.google.Chrome.flextop.chrome-fhihpiojkbmbpdjeoajapmgkhlnakfjf-Default.desktop" score="2.5" last-seen="1747630901"/>
+    <application id="droidcam.desktop" score="45" last-seen="1747779830"/>
+    <application id="org.gnome.Settings.desktop" score="488.25" last-seen="1747962343"/>
+    <application id="nwg-look.desktop" score="3" last-seen="1747748603"/>
+    <application id="org.gnome.Software.desktop" score="144.375" last-seen="1747948425"/>
+    <application id="io.ente.auth.desktop" score="0.5" last-seen="1747486660"/>
+    <application id="org.gnome.Calculator.desktop" score="3.625" last-seen="1747779819"/>
+    <application id="org.gnome.Extensions.desktop" score="0" last-seen="1747607524"/>
+    <application id="com.bitwarden.desktop.desktop" score="18.5" last-seen="1747962727"/>
+    <application id="com.discordapp.Discord.desktop" score="174.5" last-seen="1747698523"/>
+    <application id="org.gnome.Loupe.desktop" score="6.5" last-seen="1747956688"/>
+    <application id="org.gnome.Shell.Extensions.desktop" score="106.625" last-seen="1747925087"/>
+    <application id="nl.emphisia.icon.desktop" score="2.5" last-seen="1747629435"/>
+    <application id="org.flameshot.Flameshot.desktop" score="11" last-seen="1747663014"/>
+    <application id="app.zen_browser.zen.desktop" score="146" last-seen="1747943038"/>
+    <application id="com.google.Chrome.flextop.chrome-hnhcdbjkpfgheliciabglhgmhlplajkj-Default.desktop" score="1310.75" last-seen="1747699141"/>
+    <application id="org.gnome.Nautilus.desktop" score="63.75" last-seen="1747956829"/>
+    <application id="ulauncher.desktop" score="52.75" last-seen="1747926684"/>
+    <application id="org.gnome.Snapshot.desktop" score="7.625" last-seen="1747775026"/>
+    <application id="com.obsproject.Studio.desktop" score="154.5" last-seen="1747774785"/>
+    <application id="com.google.Chrome.desktop" score="13711.625" last-seen="1747962735"/>
+    <application id="org.gnome.Aisleriot.desktop" score="1070.875" last-seen="1747762572"/>
+    <application id="org.gnome.Evince.desktop" score="0" last-seen="1747956795"/>
+    <application id="io.github.maddecoder.Classic-RBDOOM-3-BFG.desktop" score="0" last-seen="1747918575"/>
+    <application id="io.github.diegopvlk.Dosage.desktop" score="9" last-seen="1747948549"/>
+    <application id="org.deskflow.deskflow.desktop" score="65.625" last-seen="1747948369"/>
+    <application id="gnome-background-panel.desktop" score="0" last-seen="0"/>
+    <application id="com.mojang.Minecraft.desktop" score="8.5" last-seen="1747918392"/>
+    <application id="com.jetbrains.IntelliJ-IDEA-Community.desktop" score="64.5" last-seen="1747519488"/>
+    <application id="gnome-bluetooth-panel.desktop" score="0" last-seen="0"/>
+  </context>
+</application-state>

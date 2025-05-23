@@ -1,0 +1,154 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) 2015 Daniel Landau
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: \n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2021-04-06 16:54+0300\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Generator: Poedit 2.4.1\n"
+"X-Poedit-Basepath: .\n"
+"X-Poedit-SearchPath-0: prefs.js\n"
+"X-Poedit-SearchPath-1: extension.js\n"
+"X-Poedit-SearchPath-2: onboardingmessages.js\n"
+
+#: onboardingmessages.js:3
+msgid "Use Super+w (or another shortcut you configured in settings) to start the switcher. Type space separated searches, use the arrow keys to navigate, and press Space to activate."
+msgstr ""
+
+#: onboardingmessages.js:4
+msgid "You can also click an item with the mouse/touchpad to activate."
+msgstr ""
+
+#: onboardingmessages.js:5
+msgid "You can use Shift+Enter to bring the activated window to the current workspace."
+msgstr ""
+
+#: onboardingmessages.js:6
+msgid "Use Ctrl+Enter to launch multiple apps or new instances of already open apps"
+msgstr ""
+
+#: onboardingmessages.js:7
+msgid "System settings sections are also available for launching, just search for them!"
+msgstr ""
+
+#: prefs.js:53
+msgid "Hotkey to activate switcher"
+msgstr ""
+
+#: prefs.js:59
+msgid "There used to be a separate launcher mode, but now launchable apps are shown in the same view"
+msgstr ""
+
+#: prefs.js:90
+msgid "Use Ctrl+w to toggle on the fly"
+msgstr ""
+
+#: prefs.js:103
+msgid "Show original language names"
+msgstr ""
+
+#: prefs.js:110
+msgid "Show executable names"
+msgstr ""
+
+#: prefs.js:189
+msgid "Key"
+msgstr ""
+
+#: prefs.js:197
+msgid "Pattern matching algorithm"
+msgstr ""
+
+#: prefs.js:198
+msgid "Strict"
+msgstr ""
+
+#: prefs.js:198
+msgid "Fuzzy"
+msgstr ""
+
+#: prefs.js:210
+msgid "Ordering criteria"
+msgstr ""
+
+#: prefs.js:211
+msgid "Last focused"
+msgstr ""
+
+#: prefs.js:211
+msgid "Most relevant"
+msgstr ""
+
+#: prefs.js:223
+msgid "Immediate activation"
+msgstr ""
+
+#: prefs.js:228
+msgid "When there is just one result, activate immediately"
+msgstr ""
+
+#: prefs.js:246
+msgid "Activate immediately this many milliseconds after last keystroke"
+msgstr ""
+
+#: prefs.js:265
+msgid "Icon size (px)"
+msgstr ""
+
+#: prefs.js:283
+msgid "Font size (px)"
+msgstr ""
+
+#: prefs.js:301
+msgid "Width (%)"
+msgstr ""
+
+#: prefs.js:318
+msgid "Activate by pressing a key matching the index in the list"
+msgstr ""
+
+#: prefs.js:320
+msgid "Disable"
+msgstr ""
+
+#: prefs.js:320
+msgid "Function keys"
+msgstr ""
+
+#: prefs.js:320
+msgid "Number keys"
+msgstr ""
+
+#: prefs.js:348
+msgid "Show workspace indicators"
+msgstr ""
+
+#: prefs.js:357
+msgid "Show only apps in the current workspace"
+msgstr ""
+
+#: prefs.js:363
+msgid "Fade Effect"
+msgstr ""
+
+#: prefs.js:370
+msgid "Show Switcher on active display"
+msgstr ""
+
+#: prefs.js:376
+msgid "Usage tips"
+msgstr ""
+
+#: prefs.js:378
+msgid "Read all tips"
+msgstr ""
