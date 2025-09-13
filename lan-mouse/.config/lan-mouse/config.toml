@@ -1,0 +1,7 @@
+# --- lan-mouse Client Configuration ---
+
+[server]
+hostname = "192.168.3.3"
+
+[authorized_fingerprints]
+"df:a7:79:ef:0f:29:b4:eb:fa:04:e2:50:86:08:6e:93:61:15:e0:41:1e:50:1b:53:9b:7e:70:15:80:7b:27:fc" = "WindowsPC"
