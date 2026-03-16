@@ -1,0 +1,44 @@
+#!/bin/bash
+# /usr/local/bin/omarchy-power-manager
+# Description: Manages dinamically Hz and Power Profiles based hardware events
+# Author: Kevin Benevides
+
+set -euo pipefail
+
+STATE=$1
+USER="kevin"
+USER_UID=$(id -u "$USER")
+export XDG_RUNTIME_DIR="/run/user/$USER_ID"
+
+# finds the active instance of hyprland to allow execution via root/udev
+export HYPRLAND_INSTANCE_SIGNATURE=$(ls -1t /tmp/hypr/ | head -n 1)
+
+# function to execute commands on user context
+run_as_user() {
+	su - "$USER" -c "$1"
+}
+
+case "$STATE" in
+	ac)
+		# On power outlet: smooth screen, balanced processor
+		run_as_user "hyprctl keyword monitor 'eDP-1, 1920x1080@165.00400,auto,1.25'"
+		powerprofilesctl set balanced
+		logger -t "omarchy-power" "AC Mode: 165Hz + Balanced"
+		;;
+	bat)
+		# On battery: maximum survival
+		run_as_user "hyprctl keyword monitor 'eDP-1,1920x1080@60.01000,auto,1.25'"
+		powerprofilectl set power-saver
+		logger -t "omarchy-power" "BATTERY Mode: 60Hz + Power-Saver"
+		;;
+	game)
+		# On game: maximum performance
+		run_as_user "hyprctl keyword monitor 'eDP-1, 1920x1080@165.00400,auto,1.25'"
+		powerprofilesctl set performance
+		logger -t "omarchy-power" "GAME Mode: 165Hz + Performance"
+		;;
+	*)
+		echo "Uso: $0 {ac|bat|game}
+		exit 1
+		;;
+esac
