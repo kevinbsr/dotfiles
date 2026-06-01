@@ -1,0 +1,12 @@
+[Unit]
+Description=Dell G15 Automatic Fan Control
+After=multi-user.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /home/kevin/scripts/g15_fan_control.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

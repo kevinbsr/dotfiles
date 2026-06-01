@@ -52,6 +52,19 @@ echo "-> [USER] Executing GNU Stow for the user $REAL_USER..."
 sudo -u "$REAL_USER" mkdir -p "$USER_HOME/.config"
 sudo -u "$REAL_USER" stow --restow --target="$USER_HOME" --dir="$REPO_DIR" user
 
+# Deploy fan control
+echo "-> [SYSTEM] Provisioning Dell G15 fan control..."
+cp "$REPO_DIR/system/usr/local/bin/g15_fan_control.py" /usr/local/bin/
+chown root:root /usr/local/bin/g15_fan_control.py
+chmod 755 /usr/local/bin/g15_fan_control.py
+
+cp "$REPO_DIR/system/etc/systemd/system/g15-fan-control.service" /etc/systemd/system/
+chown root:root /etc/systemd/system/g15-fan-control.service
+chmod 644 /etc/systemd/system/g15-fan-control.service
+
+systemctl daemon-reload
+systemctl enable --now g15-fan-control.service
+
 # Deploy custom binaries
 echo "-> [SYSTEM] Provisioning custom binaries..."
 mkdir -p /usr/local/bin
