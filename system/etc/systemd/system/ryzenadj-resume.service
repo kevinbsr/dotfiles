@@ -1,0 +1,21 @@
+[Unit]
+Description=RyzenAdj power limit restore after resume
+After=suspend.target
+After=hibernate.target
+After=hybrid-sleep.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/ryzenadj \
+  --fast-limit=54000 \
+  --slow-limit=45000 \
+  --slow-time=30 \
+  --vrm-current=58000 \
+  --vrmsoc-current=15000 \
+  --vrmmax-current=110000 \
+  --vrmsocmax-current=20000
+
+[Install]
+WantedBy=suspend.target
+WantedBy=hibernate.target
+WantedBy=hybrid-sleep.target

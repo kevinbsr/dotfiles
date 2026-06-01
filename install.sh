@@ -29,6 +29,7 @@ OFFICIAL_PACKAGES=(
 
 AUR_PACKAGES=(
   "envycontrol"
+  "ryzenadj-git"
 )
 
 echo "==> Initializing infrastructure provisioning from $REPO_DIR..."
@@ -64,6 +65,17 @@ chmod 644 /etc/systemd/system/g15-fan-control.service
 
 systemctl daemon-reload
 systemctl enable --now g15-fan-control.service
+
+# Deploy ryzenadj power limits
+echo "-> [SYSTEM] Provisioning RyzenAdj power limit services..."
+cp "$REPO_DIR/system/etc/systemd/system/ryzenadj.service" /etc/systemd/system/
+cp "$REPO_DIR/system/etc/systemd/system/ryzenadj-resume.service" /etc/systemd/system/
+chown root:root /etc/systemd/system/ryzenadj.service /etc/systemd/system/ryzenadj-resume.service
+chmod 644 /etc/systemd/system/ryzenadj.service /etc/systemd/system/ryzenadj-resume.service
+
+systemctl daemon-reload
+systemctl enable --now ryzenadj.service
+systemctl enable ryzenadj-resume.service
 
 # Deploy custom binaries
 echo "-> [SYSTEM] Provisioning custom binaries..."

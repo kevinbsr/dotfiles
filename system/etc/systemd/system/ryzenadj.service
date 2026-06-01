@@ -1,0 +1,19 @@
+[Unit]
+Description=RyzenAdj power limit configuration
+After=multi-user.target
+
+[Service]
+Type=oneshot
+# Alienware BIOS enforces STAPM >= 54W and tctl-temp >= 100C, so those are omitted.
+# PPT SLOW (slow-limit) is the effective sustained power cap — most impactful for temps.
+ExecStart=/usr/bin/ryzenadj \
+  --fast-limit=54000 \
+  --slow-limit=45000 \
+  --slow-time=30 \
+  --vrm-current=58000 \
+  --vrmsoc-current=15000 \
+  --vrmmax-current=110000 \
+  --vrmsocmax-current=20000
+
+[Install]
+WantedBy=multi-user.target
