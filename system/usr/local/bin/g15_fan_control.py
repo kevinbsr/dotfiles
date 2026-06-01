@@ -6,14 +6,17 @@ import os
 ACPI_PATH = "/proc/acpi/call"
 WMAX_PATH = "\\_SB.AMW3.WMAX"
 
-# Proactive Thresholds with Hysteresis
+# Granular Thresholds with Hysteresis for Smooth Transitions
 # Format: (up_threshold, down_threshold, boost_value)
 LEVELS = [
-    (80, 75, 0xff), # Level 4: 100% - Max Cooling
-    (70, 65, 0xc0), # Level 3: 75%  - Heavy Load
-    (55, 50, 0x80), # Level 2: 50%  - Active Usage
-    (40, 35, 0x26), # Level 1: ~15% - Ultra-Quiet Proactive
-    (0,  0,  0x00), # Level 0: 0%   - Total Silence
+    (85, 80, 0xff), # Level 7: 100% - Extreme
+    (75, 70, 0xcc), # Level 6: ~80%  - Very Heavy
+    (65, 60, 0xa6), # Level 5: ~65%  - Heavy Load
+    (55, 50, 0x80), # Level 4: 50%   - Active Usage
+    (50, 45, 0x59), # Level 3: ~35%  - Moderate (Smooth Transition)
+    (45, 40, 0x40), # Level 2: 25%   - Light Usage
+    (40, 35, 0x26), # Level 1: ~15%  - Proactive (Near-silent)
+    (0,  0,  0x00), # Level 0: 0%    - Silence
 ]
 
 def acpi_call(cmd):
@@ -45,7 +48,7 @@ def get_gpu_temp():
     return 0
 
 def main():
-    print("Starting G15 Ultra-Quiet Proactive Fan Control...")
+    print("Starting G15 Granular & Smooth Fan Control...")
     current_level_idx = len(LEVELS) - 1
     last_boost = LEVELS[current_level_idx][2]
     
