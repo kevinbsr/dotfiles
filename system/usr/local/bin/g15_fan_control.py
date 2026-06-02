@@ -1,22 +1,24 @@
 #!/usr/bin/env python3
 import time
 import os
+from collections import deque
 
 # ACPI Paths and Commands for Dell G15 5515
 ACPI_PATH = "/proc/acpi/call"
 WMAX_PATH = "\\_SB.AMW3.WMAX"
 
-# Granular Thresholds with Hysteresis for Smooth Transitions
+# Balanced & Silent Thresholds with Hysteresis
+# Focus: Silence during light work, aggressive cooling only when needed
 # Format: (up_threshold, down_threshold, boost_value)
 LEVELS = [
-    (85, 80, 0xff), # Level 7: 100% - Extreme
-    (75, 70, 0xcc), # Level 6: ~80%  - Very Heavy
-    (65, 60, 0xa6), # Level 5: ~65%  - Heavy Load
-    (55, 50, 0x80), # Level 4: 50%   - Active Usage
-    (50, 45, 0x59), # Level 3: ~35%  - Moderate (Smooth Transition)
-    (45, 40, 0x40), # Level 2: 25%   - Light Usage
-    (40, 35, 0x26), # Level 1: ~15%  - Proactive (Near-silent)
-    (0,  0,  0x00), # Level 0: 0%    - Silence
+    (85, 80, 0xff), # Level 7: 100% - Critical
+    (75, 70, 0xcc), # Level 6: ~80%  - Heavy Load
+    (65, 60, 0xa6), # Level 5: ~65%  - Active Usage
+    (60, 55, 0x80), # Level 4: 50%   - Warmer
+    (55, 50, 0x59), # Level 3: ~35%  - Transition
+    (50, 45, 0x33), # Level 2: ~20%  - Light Work (Very Quiet)
+    (40, 35, 0x1a), # Level 1: ~10%  - Proactive (Silent Airflow)
+    (0,  0,  0x00), # Level 0: 0%    - Cold
 ]
 
 def acpi_call(cmd):
@@ -48,34 +50,48 @@ def get_gpu_temp():
     return 0
 
 def main():
-    print("Starting G15 Granular & Smooth Fan Control...")
+    print("Starting G15 Ultra-Silent & Smooth Fan Control...")
     current_level_idx = len(LEVELS) - 1
-    last_boost = LEVELS[current_level_idx][2]
+    last_boost = -1
+    
+    # Store the last 10 readings (50 seconds of data at 5s interval)
+    # A longer window prevents rapid changes from short spikes
+    temp_history = deque(maxlen=10)
     
     while True:
         cpu_temp = get_cpu_temp()
         gpu_temp = get_gpu_temp()
-        max_temp = max(cpu_temp, gpu_temp)
+        raw_max = max(cpu_temp, gpu_temp)
+        
+        if raw_max > 0:
+            temp_history.append(raw_max)
+        
+        if not temp_history:
+            time.sleep(5)
+            continue
+            
+        # Average temperature to smooth out the curve
+        avg_temp = sum(temp_history) / len(temp_history)
         
         new_level_idx = current_level_idx
         
-        # Check if we should go UP
+        # UP logic
         for i in range(current_level_idx):
-            if max_temp >= LEVELS[i][0]:
+            if avg_temp >= LEVELS[i][0]:
                 new_level_idx = i
                 break
         
-        # Check if we should go DOWN
-        if max_temp < LEVELS[current_level_idx][1]:
+        # DOWN logic
+        if avg_temp < LEVELS[current_level_idx][1]:
             for i in range(current_level_idx + 1, len(LEVELS)):
-                if max_temp >= LEVELS[i][0] or i == len(LEVELS) - 1:
+                if avg_temp >= LEVELS[i][0] or i == len(LEVELS) - 1:
                     new_level_idx = i
                     break
 
         boost = LEVELS[new_level_idx][2]
             
         if boost != last_boost:
-            print(f"Temp: {max_temp}C -> Level {len(LEVELS)-1-new_level_idx} (Boost: {hex(boost)})")
+            print(f"Raw: {raw_max}C | Avg: {avg_temp:.1f}C -> Level {len(LEVELS)-1-new_level_idx} (Boost: {hex(boost)})")
             set_manual_mode()
             set_fan_boost(0x32, boost)
             set_fan_boost(0x33, boost)
