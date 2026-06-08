@@ -1,0 +1,9 @@
+# Exclude waybar logs
+waybar.log
+
+# Exclude sports widget cache files
+scripts/*_cache.json
+
+# Exclude backups
+*.bak
+*.bak.*
