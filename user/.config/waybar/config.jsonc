@@ -5,17 +5,31 @@
   "spacing": 0,
   "height": 26,
   "width": 0,
-  "modules-left": ["custom/omarchy", "mpris", "hyprland/workspaces"],
-  "modules-center": ["clock#horizontal", "clock#vertical", "custom/weather", "custom/sports-widget", "custom/update", "custom/voxtype", "custom/screenrecording-indicator", "custom/idle-indicator", "custom/notification-silencing-indicator"],
+  "modules-left": [
+    "custom/omarchy",
+    "hyprland/workspaces",
+    "mpris"
+  ],
+  "modules-center": [
+    "custom/sports-widget",
+    "clock#horizontal",
+    "clock#vertical",
+    "custom/weather",
+    "custom/update",
+    "custom/voxtype",
+    "custom/screenrecording-indicator",
+    "custom/idle-indicator",
+    "custom/notification-silencing-indicator"
+  ],
   "modules-right": [
     "group/tray-expander",
+    "custom/aibar",
+    "custom/webcam",
+    "custom/mic",
+    "custom/tailscale",
     "bluetooth",
     "network",
-    "custom/tailscale",
-    "custom/mic",
-    "custom/webcam",
     "pulseaudio",
-    "custom/aibar",
     "custom/cpu-info",
     "battery"
   ],
@@ -78,7 +92,13 @@
     "on-click": "notify-send -u low \"$(omarchy-weather-status)\""
   },
   "network": {
-    "format-icons": ["󰤯", "󰤟", "󰤢", "󰤥", "󰤨"],
+    "format-icons": [
+      "󰤯",
+      "󰤟",
+      "󰤢",
+      "󰤥",
+      "󰤨"
+    ],
     "format": "{icon}",
     "format-wifi": "{icon}",
     "format-ethernet": "󰀂",
@@ -96,8 +116,30 @@
     "format-charging": "{icon}",
     "format-plugged": "",
     "format-icons": {
-      "charging": ["󰢜", "󰂆", "󰂇", "󰂈", "󰢝", "󰂉", "󰢞", "󰂊", "󰂋", "󰂅"],
-      "default": ["󰁺", "󰁻", "󰁼", "󰁽", "󰁾", "󰁿", "󰂀", "󰂁", "󰂂", "󰁹"]
+      "charging": [
+        "󰢜",
+        "󰂆",
+        "󰂇",
+        "󰂈",
+        "󰢝",
+        "󰂉",
+        "󰢞",
+        "󰂊",
+        "󰂋",
+        "󰂅"
+      ],
+      "default": [
+        "󰁺",
+        "󰁻",
+        "󰁼",
+        "󰁽",
+        "󰁾",
+        "󰁿",
+        "󰂀",
+        "󰂁",
+        "󰂂",
+        "󰁹"
+      ]
     },
     "format-full": "󰂅",
     "tooltip-format-discharging": "{power:>1.0f}W↓ {capacity}%",
@@ -129,7 +171,11 @@
     "format-icons": {
       "headphone": "",
       "headset": "",
-      "default": ["", "", ""]
+      "default": [
+        "",
+        "",
+        ""
+      ]
     }
   },
   "group/tray-expander": {
@@ -138,11 +184,17 @@
       "transition-duration": 600,
       "children-class": "tray-group-item"
     },
-    "modules": ["group/expand-icons", "tray"]
+    "modules": [
+      "group/expand-icons",
+      "tray"
+    ]
   },
   "group/expand-icons": {
     "orientation": "inherit",
-    "modules": ["custom/expand-icon#horizontal", "custom/expand-icon#vertical"]
+    "modules": [
+      "custom/expand-icon#horizontal",
+      "custom/expand-icon#vertical"
+    ]
   },
   "custom/expand-icon#horizontal": {
     "format": "",
@@ -230,7 +282,9 @@
     "status-icon": {
       "paused": "󰏤"
     },
-    "dynamic-order": ["title"],
+    "dynamic-order": [
+      "title"
+    ],
     "dynamic-separator": " - ",
     "max-length": 40,
     "tooltip-format": "{player} ({status})\n{title} - {artist}\n{album}",
