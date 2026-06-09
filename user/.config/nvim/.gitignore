@@ -1,0 +1,11 @@
+tt.*
+.tests
+doc/tags
+debug
+.repro
+foo.*
+*.log
+data
+
+# Tema gerado/gerenciado pelo Omarchy (symlink específico da máquina)
+lua/plugins/theme.lua
