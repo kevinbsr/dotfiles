@@ -4,15 +4,9 @@
   "position": "top",
   "spacing": 0,
   "height": 26,
-  "modules-center": ["hyprland/workspaces"],
-  "modules-left": [
-    "custom/omarchy", 
-    "mpris", "custom/update", 
-    "custom/voxtype", 
-    "custom/screenrecording-indicator", 
-    "custom/idle-indicator", 
-    "custom/notification-silencing-indicator"
-  ],
+  "width": 0,
+  "modules-left": ["custom/omarchy", "mpris", "hyprland/workspaces"],
+  "modules-center": ["clock#horizontal", "clock#vertical", "custom/weather", "custom/sports-widget", "custom/update", "custom/voxtype", "custom/screenrecording-indicator", "custom/idle-indicator", "custom/notification-silencing-indicator"],
   "modules-right": [
     "group/tray-expander",
     "bluetooth",
@@ -23,28 +17,8 @@
     "pulseaudio",
     "custom/aibar",
     "custom/cpu-info",
-    "battery",
-    "custom/weather", 
-    "custom/sports-widget",
-    "clock", 
+    "battery"
   ],
-  "custom/aibar": {
-    "exec": "ai-usagebar --format '󰚩' --no-color",
-    "return-type": "json",
-    "interval": 300,
-    "signal": 13,
-    "tooltip": true,
-    "on-click": "alacritty -e ai-usagebar-tui",
-    "on-click-right": "pkill -RTMIN+13 waybar"
-  },
-  "custom/cpu-info": {
-    "exec": "~/.config/waybar/scripts/sys-summary.sh",
-    "return-type": "json",
-    "format": "{}",
-    "interval": 1,
-    "on-click": "omarchy-launch-or-focus-tui btop",
-    "on-click-right": "alacritty"
-  },
   "hyprland/workspaces": {
     "on-click": "activate",
     "format": "{icon}",
@@ -56,7 +30,7 @@
       "4": "4",
       "5": "5",
       "6": "6",
-          "7": "7",
+      "7": "7",
       "8": "8",
       "9": "9",
       "10": "0",
@@ -84,38 +58,24 @@
     "signal": 7,
     "interval": 21600
   },
-
-  "cpu": {
-    "interval": 5,
-    "format": "󰍛",
-    "on-click": "omarchy-launch-or-focus-tui btop",
-    "on-click-right": "alacritty"
+  "clock#horizontal": {
+    "format": "{:L%A %H:%M}",
+    "format-alt": "{:L%d %B W%V %Y}",
+    "tooltip": false,
+    "on-click-right": "omarchy-launch-floating-terminal-with-presentation omarchy-tz-select"
   },
-  "clock": {
-  //   "format": "{:L%A %H:%M}",
-  //   "format-alt": "{:L%d %B %Y}",
-  //   "tooltip": false,
-  //   "on-click-right": "omarchy-launch-floating-terminal-with-presentation omarchy-tz-select"
-    "format": "{:%H:%M %p}",
-    "format-alt": "{:%a, %d}",
-    "tooltip-format": "<tt><small>{calendar}</small></tt>",
-    "calendar": {
-      "mode": "month",
-      "mode-mon-col": 3,
-      "weeks-pos": "none",
-      "on-scroll": 1,
-      "format": {
-        "months": "<b>{}</b>",
-        "days": "{}",
-        "weekdays": "<b>{}</b>",
-        "today": "<b><u>{}</u></b>"
-      }
-    },
-    "actions": {
-      "on-click-right": "mode",
-      "on-scroll-up": "shift_up",
-      "on-scroll-down": "shift_down"
-    }
+  "clock#vertical": {
+    "format": "{:%H\n  —\n%M}",
+    "format-alt": "{:L%d %B W%V %Y}",
+    "tooltip": false,
+    "on-click-right": "omarchy-launch-floating-terminal-with-presentation omarchy-tz-select"
+  },
+  "custom/weather": {
+    "exec": "$OMARCHY_PATH/default/waybar/weather.sh",
+    "return-type": "json",
+    "interval": 60,
+    "tooltip": false,
+    "on-click": "notify-send -u low \"$(omarchy-weather-status)\""
   },
   "network": {
     "format-icons": ["󰤯", "󰤟", "󰤢", "󰤥", "󰤨"],
@@ -129,16 +89,6 @@
     "interval": 3,
     "spacing": 1,
     "on-click": "omarchy-launch-wifi"
-  },
-  "custom/tailscale": {
-    "exec": "~/.config/waybar/scripts/waybar-tailscale.sh --status 'ipv4'",
-    "on-click": "~/.config/waybar/scripts/waybar-tailscale.sh --toggle",
-    "on-click-right": "~/.config/waybar/scripts/waybar-tailscale.sh --select-exit-node",
-    "exec-on-event": true,
-    "format": "󱠾",
-    "tooltip": true,
-    "return-type": "json",
-    "interval": 2
   },
   "battery": {
     "format": "{capacity}% {icon}",
@@ -188,10 +138,23 @@
       "transition-duration": 600,
       "children-class": "tray-group-item"
     },
-    "modules": ["custom/expand-icon", "tray"]
+    "modules": ["group/expand-icons", "tray"]
   },
-  "custom/expand-icon": {
+  "group/expand-icons": {
+    "orientation": "inherit",
+    "modules": ["custom/expand-icon#horizontal", "custom/expand-icon#vertical"]
+  },
+  "custom/expand-icon#horizontal": {
     "format": "",
+    "tooltip": false,
+    "on-scroll-up": "",
+    "on-scroll-down": "",
+    "on-scroll-left": "",
+    "on-scroll-right": ""
+  },
+  "custom/expand-icon#vertical": {
+    "format": "",
+    "rotate": 270,
     "tooltip": false,
     "on-scroll-up": "",
     "on-scroll-down": "",
@@ -233,16 +196,22 @@
     "icon-size": 12,
     "spacing": 17
   },
-  "custom/weather": {
-    "exec": "$OMARCHY_PATH/default/waybar/weather.sh",
+  "custom/aibar": {
+    "exec": "ai-usagebar --format '󰚩' --no-color",
     "return-type": "json",
-    "interval": 60,
-    "tooltip": false,
-    "on-click": "notify-send -u low \"$(omarchy-weather-status)\""
-    // "exec": "~/.config/waybar/weather.sh",
-    // "interval": 1800,
-    // "tooltip": false,
-    // "on-click": "xdg-terminal-exec ~/.config/waybar/weather.sh forecast"
+    "interval": 300,
+    "signal": 13,
+    "tooltip": true,
+    "on-click": "alacritty -e ai-usagebar-tui",
+    "on-click-right": "pkill -RTMIN+13 waybar"
+  },
+  "custom/cpu-info": {
+    "exec": "~/.config/waybar/scripts/sys-summary.sh",
+    "return-type": "json",
+    "format": "{}",
+    "interval": 1,
+    "on-click": "omarchy-launch-or-focus-tui btop",
+    "on-click-right": "alacritty"
   },
   "custom/sports-widget": {
     "exec": "~/.config/waybar/scripts/sports_widget.py",
@@ -256,8 +225,7 @@
     "format": "{player_icon} {dynamic}",
     "format-paused": "{status_icon} <i>{dynamic}<i>",
     "player-icons": {
-      // "default": "󰎆",
-      "spotify": "󰓇",
+      "spotify": "󰓇"
     },
     "status-icon": {
       "paused": "󰏤"
@@ -287,4 +255,14 @@
     "interval": 3,
     "return-type": "json"
   },
+  "custom/tailscale": {
+    "exec": "~/.config/waybar/scripts/waybar-tailscale.sh --status 'ipv4'",
+    "on-click": "~/.config/waybar/scripts/waybar-tailscale.sh --toggle",
+    "on-click-right": "~/.config/waybar/scripts/waybar-tailscale.sh --select-exit-node",
+    "exec-on-event": true,
+    "format": "󱠾",
+    "tooltip": true,
+    "return-type": "json",
+    "interval": 2
+  }
 }

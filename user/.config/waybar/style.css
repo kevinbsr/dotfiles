@@ -7,8 +7,8 @@
   border: none;
   border-radius: 0;
   min-height: 0;
-  font-family: 'CaskaydiaMono Nerd Font';
-  font-size: 16px;
+  font-family: 'JetBrainsMono Nerd Font';
+  font-size: 12px;
 }
 
 .modules-left {
@@ -37,28 +37,10 @@
 #pulseaudio,
 #custom-omarchy,
 #custom-update,
-#mpris,
-#clock {
+#mpris {
   min-width: 12px;
   margin: 0 7.5px;
 }
-
-#custom-weather {
- /* margin: 0 0 0 10px; */ 
-  margin-left: 7.5px;
-  margin-right: 7.5px;
-  min-width: 14px;
-}
-
-#custom-weather.unavailable {
-  min-width: 0;
-  margin: 0;
-  padding: 0;
-}
-
-/* #mpris { */
-/*   margin-left: 16px; */
-/* } */
 
 #tray {
   margin-right: 16px;
@@ -84,9 +66,21 @@ tooltip {
   font-size: 10px;
 }
 
-/* #clock { */
-/*   margin-left: 8.75px; */
-/* } */
+#clock {
+  margin-left: 8.75px;
+}
+
+#custom-weather {
+  margin-left: 7.5px;
+  margin-right: 7.5px;
+  min-width: 14px;
+}
+
+#custom-weather.unavailable {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+}
 
 .hidden {
   opacity: 0;
@@ -120,17 +114,9 @@ tooltip {
   color: #a55555;
 }
 
-window#waybar {
-  background-color: alpha(@base00, 0.6);
-}
-
 #custom-mic {
   margin: 0 7.5px;
 }
-
-/* #custom-mic.muted { */
-/*   color: #a55555; */
-/* } */
 
 #custom-webcam {
   margin: 0 7.5px;
@@ -162,7 +148,7 @@ window#waybar {
   padding: 0 10px;
   margin: 2px 7.5px;
   font-weight: bold;
-  font-size: 14px;
+  font-size: 11px;
   transition: all 0.3s ease;
 }
 
@@ -173,17 +159,16 @@ window#waybar {
   box-shadow: 0 0 5px alpha(@accent, 0.4);
 }
 
-/* Subtle theme-color coding for general states to integrate perfectly with the menu bar */
 #custom-sports-widget.live-general {
-  color: @color2; /* Vibrant theme green for active general live games */
+  color: @color2;
 }
 
 #custom-sports-widget.upcoming-general {
-  color: @color3; /* Orange/Yellow for upcoming scheduled games */
+  color: @color3;
 }
 
 #custom-sports-widget.no-events {
-  color: @color8; /* Muted/Inactive grey when there are no events today */
+  color: @color8;
 }
 
 #custom-tailscale {
@@ -195,3 +180,79 @@ window#waybar {
   color: @accent;
 }
 
+.left .modules-left, .right .modules-left { margin: 8px 0 0 0; }
+.left .modules-right, .right .modules-right { margin: 0 0 8px 0; }
+
+.left #workspaces button, .right #workspaces button {
+  padding: 6px 0;
+  margin: 1.5px 0;
+}
+
+.left #cpu, .right #cpu,
+.left #battery, .right #battery,
+.left #pulseaudio, .right #pulseaudio,
+.left #custom-omarchy, .right #custom-omarchy,
+.left #custom-update, .right #custom-update {
+  margin: 1.5px 0;
+  padding: 6px 0;
+  min-width: 0;
+  min-height: 12px;
+}
+
+.left #tray, .right #tray { margin: 0 0 16px 0; }
+.left #bluetooth, .right #bluetooth { margin: 1.5px 0; padding: 6px 0; min-height: 12px; }
+.left #network, .right #network { margin: 1.5px 0; padding: 6px 0; min-height: 12px; }
+.left #custom-expand-icon, .right #custom-expand-icon { margin: 1.5px 0; padding: 6px 0; min-height: 12px; }
+.left #clock, .right #clock { margin: 8.75px 0 0 0; }
+.left #custom-weather, .right #custom-weather { margin: 1.5px 0; padding: 6px 0; min-height: 12px; min-width: 14px; margin-right: 4px; }
+
+.left #custom-screenrecording-indicator, .right #custom-screenrecording-indicator,
+.left #custom-idle-indicator, .right #custom-idle-indicator,
+.left #custom-notification-silencing-indicator, .right #custom-notification-silencing-indicator {
+  margin: 5px 0 0 0;
+  min-width: 0;
+  min-height: 12px;
+}
+
+.left #custom-voxtype, .right #custom-voxtype { margin: 7.5px 0 0 0; min-width: 0; min-height: 12px; }
+
+#custom-expand-icon.vertical,
+.left #custom-expand-icon.horizontal,
+.right #custom-expand-icon.horizontal {
+  opacity: 0;
+  font-size: 0;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.left #custom-expand-icon.vertical,
+.right #custom-expand-icon.vertical {
+  opacity: 1;
+  font-size: inherit;
+  min-width: 0;
+  min-height: 12px;
+  margin: 1.5px 0;
+  padding: 6px 0;
+}
+
+#clock.vertical,
+.left #clock.horizontal,
+.right #clock.horizontal {
+  opacity: 0;
+  font-size: 0;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.left #clock.vertical,
+.right #clock.vertical {
+  opacity: 1;
+  font-size: inherit;
+  min-width: 0;
+  min-height: 12px;
+  margin: 8.75px 0 0 0;
+}
