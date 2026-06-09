@@ -22,6 +22,7 @@ USER_UID=$(id -u "$REAL_USER")
 OFFICIAL_PACKAGES=(
   "gamemode"
   "lib32-gamemode"
+  "jq"
   "power-profiles-daemon"
   "powertop"
   "stow"

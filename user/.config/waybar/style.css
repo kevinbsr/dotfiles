@@ -186,3 +186,12 @@ window#waybar {
   color: @color8; /* Muted/Inactive grey when there are no events today */
 }
 
+#custom-tailscale {
+  margin: 0 7.5px;
+  transition: all 0.3s ease;
+}
+
+#custom-tailscale:hover {
+  color: @accent;
+}
+

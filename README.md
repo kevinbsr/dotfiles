@@ -18,5 +18,20 @@ cd ~/.dotfiles
 chmod +x install.sh
 sudo ./install.sh
 ```
+## 🔧 Integrations & Manual Steps
+
+### Tailscale Waybar Module
+A custom Waybar module is configured to execute [waybar-tailscale.sh](file:///home/kevin/dotfiles/user/.config/waybar/scripts/waybar-tailscale.sh).
+
+To use it:
+1. **Permissions:** Grant user control of the Tailscale daemon without requiring `sudo`:
+   ```bash
+   sudo tailscale set --operator=$USER
+   ```
+2. **Usage:**
+   * **Left-click:** Toggle Tailscale connection.
+   * **Right-click:** Select an Exit Node using `walker`.
+   * **Hover:** Display peers, exit node status, and IPs (styled dynamically using the active Omarchy theme).
+
 ---
 
