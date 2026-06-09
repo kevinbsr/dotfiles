@@ -2,7 +2,7 @@
 
 # Exit if Spotify is not active
 if ! playerctl -p spotify status >/dev/null 2>&1; then
-    notify-send -u low -a "Spotify" "Spotify is not running"
+    notify-send -u low -a "Music" "Spotify is not running"
     exit 0
 fi
 
@@ -24,8 +24,8 @@ if [ -n "$art_url" ]; then
     fi
 
     # Send notification with the downloaded cover as icon
-    notify-send -a "Spotify" -i "$cover_path" "$title" "by $artist\nAlbum: $album"
+    notify-send -a "Music" -i "$cover_path" "$title" "by $artist\nAlbum: $album"
 else
     # Send notification without icon
-    notify-send -a "Spotify" "$title" "by $artist\nAlbum: $album"
+    notify-send -a "Music" "$title" "by $artist\nAlbum: $album"
 fi
