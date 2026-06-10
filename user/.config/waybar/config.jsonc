@@ -275,7 +275,7 @@
   "mpris": {
     "player": "spotify",
     "format": "{player_icon}",
-    "format-paused": "{status_icon}",
+    "format-paused": "{player_icon} {status_icon}",
     "player-icons": {
       "spotify": "󰓇"
     },
