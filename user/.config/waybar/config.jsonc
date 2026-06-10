@@ -283,7 +283,7 @@
       "paused": "󰏤"
     },
     "tooltip": false,
-    "on-click": "playerctl play-pause",
+    "on-click": "playerctl play-pause && sleep 0.5 && [ \"$(playerctl status 2>/dev/null)\" = \"Playing\" ] && /home/kevin/.config/waybar/scripts/spotify-notification.sh",
     "on-click-right": "playerctl next && sleep 0.5 && /home/kevin/.config/waybar/scripts/spotify-notification.sh",
     "on-click-middle": "playerctl previous && sleep 0.5 && /home/kevin/.config/waybar/scripts/spotify-notification.sh",
     "on-scroll-up": "playerctl volume 0.05+",
