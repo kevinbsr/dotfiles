@@ -283,9 +283,9 @@
       "paused": "󰏤"
     },
     "tooltip": false,
-    "on-click": "playerctl -p spotify play-pause && sleep 0.5 && [ \"$(playerctl -p spotify status 2>/dev/null)\" = \"Playing\" ] && /home/kevin/.config/waybar/scripts/spotify-notification.sh",
-    "on-click-right": "playerctl -p spotify next && sleep 0.5 && /home/kevin/.config/waybar/scripts/spotify-notification.sh",
-    "on-click-middle": "playerctl -p spotify previous && sleep 0.5 && /home/kevin/.config/waybar/scripts/spotify-notification.sh",
+    "on-click": "/home/kevin/.config/waybar/scripts/spotify-notification.sh",
+    "on-click-right": "playerctl -p spotify play-pause",
+    "on-click-middle": "omarchy-launch-or-focus spotify",
     "on-scroll-up": "playerctl -p spotify volume 0.05+",
     "on-scroll-down": "playerctl -p spotify volume 0.05-"
   },
