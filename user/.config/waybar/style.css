@@ -223,7 +223,9 @@ tooltip {
   margin: 8.75px 0 0 0;
 }
 .left #custom-weather,
-.right #custom-weather {
+.right #custom-weather,
+.left #custom-pomodoro,
+.right #custom-pomodoro {
   margin: 1.5px 0;
   padding: 6px 0;
   min-height: 12px;
@@ -292,11 +294,12 @@ tooltip {
 
 #custom-pomodoro {
   transition: all 0.3s ease;
-  margin: 0 5px;
+  margin: 0 7.5px;
+  min-width: 14px;
 }
 
 #custom-pomodoro.stopped {
-  color: @color8;
+  /* Inherits default color to match other icons on the bar */
 }
 
 #custom-pomodoro.paused {
