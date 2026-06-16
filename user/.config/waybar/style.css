@@ -289,3 +289,53 @@ tooltip {
   min-height: 12px;
   margin: 8.75px 0 0 0;
 }
+
+#custom-pomodoro {
+  transition: all 0.3s ease;
+  margin: 0 5px;
+}
+
+#custom-pomodoro.stopped {
+  color: @color8;
+}
+
+#custom-pomodoro.paused {
+  color: @color3;
+}
+
+#custom-pomodoro.work {
+  background-color: alpha(@color1, 0.15);
+  color: @color1;
+  border: 1px solid alpha(@color1, 0.4);
+  border-radius: 12px;
+  padding: 0 10px;
+  margin: 2px 7.5px;
+  font-weight: bold;
+  font-size: 11px;
+  transition: all 0.3s ease;
+}
+
+#custom-pomodoro.work:hover {
+  background-color: alpha(@color1, 0.25);
+  border-color: alpha(@color1, 0.6);
+  box-shadow: 0 0 5px alpha(@color1, 0.4);
+}
+
+#custom-pomodoro.break {
+  background-color: alpha(@color2, 0.15);
+  color: @color2;
+  border: 1px solid alpha(@color2, 0.4);
+  border-radius: 12px;
+  padding: 0 10px;
+  margin: 2px 7.5px;
+  font-weight: bold;
+  font-size: 11px;
+  transition: all 0.3s ease;
+}
+
+#custom-pomodoro.break:hover {
+  background-color: alpha(@color2, 0.25);
+  border-color: alpha(@color2, 0.6);
+  box-shadow: 0 0 5px alpha(@color2, 0.4);
+}
+
