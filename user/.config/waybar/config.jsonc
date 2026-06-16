@@ -280,7 +280,7 @@
     "tooltip": true,
     "on-click": "~/.config/waybar/scripts/pomodoro.py --toggle",
     "on-click-right": "~/.config/waybar/scripts/pomodoro.py --reset",
-    "on-click-middle": "~/.config/waybar/scripts/pomodoro.py --skip"
+    "on-click-middle": "omarchy-launch-floating-terminal-with-presentation python3 ~/.config/waybar/scripts/configure_pomodoro.py"
   },
   "mpris": {
     "player": "spotify",

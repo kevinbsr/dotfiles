@@ -6,6 +6,7 @@ import time
 import subprocess
 
 STATE_PATH = os.path.expanduser("~/.config/waybar/scripts/pomodoro_state.json")
+CONFIG_PATH = os.path.expanduser("~/.config/waybar/scripts/pomodoro_config.json")
 
 # Nerd Font Icons
 ICON_WORK = "󰔛"      # Timer/Focus
@@ -13,10 +14,23 @@ ICON_BREAK = "󰔚"     # Coffee Cup/Break
 ICON_PAUSED = "󰏤"    # Pause
 ICON_STOPPED = ""   # Clock/Stopped
 
-# Durations in seconds
-DURATION_WORK = 25 * 60
-DURATION_BREAK = 5 * 60
-DURATION_LONG_BREAK = 15 * 60
+def load_config():
+    defaults = {
+        "work_duration": 25,
+        "break_duration": 5,
+        "long_break_duration": 15,
+        "cycles_before_long_break": 4
+    }
+    if os.path.exists(CONFIG_PATH):
+        try:
+            with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
+                loaded = json.load(f)
+                for k, v in defaults.items():
+                    loaded.setdefault(k, v)
+                return loaded
+        except Exception:
+            pass
+    return defaults
 
 def load_state():
     if os.path.exists(STATE_PATH):
@@ -61,25 +75,39 @@ def send_notification(summary, body, urgency="normal"):
         pass
 
 def toggle_timer(state):
+    config = load_config()
+    duration_work = config["work_duration"] * 60
+    duration_break = config["break_duration"] * 60
+    duration_long_break = config["long_break_duration"] * 60
+    cycles_before_long_break = config["cycles_before_long_break"]
+    
     current_time = int(time.time())
     status = state["status"]
+    mode = state["mode"]
     
     if status == "stopped":
-        state["status"] = "work"
-        state["mode"] = "work"
-        state["target_time"] = current_time + DURATION_WORK
+        state["status"] = mode
+        if mode == "work":
+            state["target_time"] = current_time + duration_work
+            send_notification("Focus Session Started", f"Let's focus for {config['work_duration']} minutes!")
+        else:
+            cycles = state["completed_cycles"]
+            if cycles > 0 and cycles % cycles_before_long_break == 0:
+                state["target_time"] = current_time + duration_long_break
+                send_notification("Break Started", f"Time for a Long Break ({config['long_break_duration']} min).")
+            else:
+                state["target_time"] = current_time + duration_break
+                send_notification("Break Started", f"Time for a Short Break ({config['break_duration']} min).")
         state["paused_remaining"] = 0
-        state["completed_cycles"] = 0
-        send_notification("Pomodoro Started", "Let's focus for 25 minutes!")
     elif status in ("work", "break"):
         state["paused_remaining"] = max(0, state["target_time"] - current_time)
         state["status"] = "paused"
         send_notification("Pomodoro Paused", "Timer has been paused.")
     elif status == "paused":
-        state["status"] = state["mode"]
+        state["status"] = mode
         state["target_time"] = current_time + state["paused_remaining"]
         state["paused_remaining"] = 0
-        send_notification("Pomodoro Resumed", f"Back to {state['mode']} session.")
+        send_notification("Pomodoro Resumed", f"Back to {mode} session.")
         
     save_state(state)
 
@@ -92,34 +120,58 @@ def reset_timer(state):
     save_state(state)
 
 def skip_timer(state):
+    config = load_config()
+    duration_work = config["work_duration"] * 60
+    duration_break = config["break_duration"] * 60
+    duration_long_break = config["long_break_duration"] * 60
+    cycles_before_long_break = config["cycles_before_long_break"]
+    
     current_time = int(time.time())
     status = state["status"]
     
-    if status == "stopped":
-        return
-        
     if state["mode"] == "work":
         state["mode"] = "break"
-        state["status"] = "break"
         cycles = state["completed_cycles"] + 1
         state["completed_cycles"] = cycles
         
-        if cycles % 4 == 0:
-            state["target_time"] = current_time + DURATION_LONG_BREAK
-            send_notification("Session Skipped", "Skipping to Long Break (15 min).")
+        if status in ("work", "break", "paused"):
+            if cycles % cycles_before_long_break == 0:
+                duration = duration_long_break
+                send_notification("Session Skipped", f"Skipping to Long Break ({config['long_break_duration']} min).")
+            else:
+                duration = duration_break
+                send_notification("Session Skipped", f"Skipping to Short Break ({config['break_duration']} min).")
+            
+            if status == "paused":
+                state["paused_remaining"] = duration
+            else:
+                state["status"] = "break"
+                state["target_time"] = current_time + duration
         else:
-            state["target_time"] = current_time + DURATION_BREAK
-            send_notification("Session Skipped", "Skipping to Short Break (5 min).")
+            send_notification("Session Skipped", "Skipped Focus. Ready for Break.")
     else:
         state["mode"] = "work"
-        state["status"] = "work"
-        state["target_time"] = current_time + DURATION_WORK
-        send_notification("Session Skipped", "Skipping back to Focus Session (25 min).")
-        
-    state["paused_remaining"] = 0
+        if status in ("work", "break", "paused"):
+            duration = duration_work
+            send_notification("Session Skipped", f"Skipping back to Focus Session ({config['work_duration']} min).")
+            
+            if status == "paused":
+                state["paused_remaining"] = duration
+            else:
+                state["status"] = "work"
+                state["target_time"] = current_time + duration
+        else:
+            send_notification("Session Skipped", "Skipped Break. Ready to Focus.")
+            
     save_state(state)
 
 def print_status(state):
+    config = load_config()
+    duration_work = config["work_duration"] * 60
+    duration_break = config["break_duration"] * 60
+    duration_long_break = config["long_break_duration"] * 60
+    cycles_before_long_break = config["cycles_before_long_break"]
+
     current_time = int(time.time())
     status = state["status"]
     mode = state["mode"]
@@ -129,43 +181,45 @@ def print_status(state):
     if status in ("work", "break"):
         remaining = int(state["target_time"] - current_time)
         if remaining <= 0:
-            # Time's up! Transition state.
+            # Time's up! Transition mode, but stop and wait for click
             if mode == "work":
                 completed += 1
                 state["completed_cycles"] = completed
                 state["mode"] = "break"
-                state["status"] = "break"
+                state["status"] = "stopped"
+                state["target_time"] = 0
+                state["paused_remaining"] = 0
                 
-                if completed % 4 == 0:
-                    state["target_time"] = current_time + DURATION_LONG_BREAK
+                if completed % cycles_before_long_break == 0:
                     send_notification(
                         "Focus Session Completed!", 
-                        "Great job! Time for a Long Break (15 min).", 
+                        f"Great job! Click the widget to start your Long Break ({config['long_break_duration']} min).", 
                         urgency="critical"
                     )
                 else:
-                    state["target_time"] = current_time + DURATION_BREAK
                     send_notification(
                         "Focus Session Completed!", 
-                        "Time to take a Short Break (5 min).", 
+                        f"Time for a Short Break ({config['break_duration']} min). Click the widget to start.", 
                         urgency="critical"
                     )
             else:
                 state["mode"] = "work"
-                state["status"] = "work"
-                state["target_time"] = current_time + DURATION_WORK
+                state["status"] = "stopped"
+                state["target_time"] = 0
+                state["paused_remaining"] = 0
                 send_notification(
                     "Break Completed!", 
-                    "Time to get back to work. Focus!", 
+                    "Time to get back to work. Click the widget to start focusing.", 
                     urgency="critical"
                 )
             
             save_state(state)
-            # Re-read remaining for print
-            remaining = int(state["target_time"] - current_time)
+            # Re-read status/mode for output
             status = state["status"]
             mode = state["mode"]
             
+    if status in ("work", "break"):
+        remaining = int(state["target_time"] - current_time)
         mins = remaining // 60
         secs = remaining % 60
         time_str = f"{mins:02d}:{secs:02d}"
@@ -174,12 +228,12 @@ def print_status(state):
             text = f"{ICON_WORK} {time_str}"
             tooltip = f"Focus Session (Work)\nRemaining: {mins}m {secs}s\nCompleted cycles: {completed}"
             css_class = "work"
-            total = DURATION_WORK
+            total = duration_work
         else:
             text = f"{ICON_BREAK} {time_str}"
             tooltip = f"Break Session (Rest)\nRemaining: {mins}m {secs}s\nCompleted cycles: {completed}"
             css_class = "break"
-            total = DURATION_LONG_BREAK if completed % 4 == 0 else DURATION_BREAK
+            total = duration_long_break if completed % cycles_before_long_break == 0 else duration_break
             
         percentage = int((remaining / total) * 100)
         
@@ -194,14 +248,20 @@ def print_status(state):
         css_class = "paused"
         
         if mode == "work":
-            total = DURATION_WORK
+            total = duration_work
         else:
-            total = DURATION_LONG_BREAK if completed % 4 == 0 else DURATION_BREAK
+            total = duration_long_break if completed % cycles_before_long_break == 0 else duration_break
         percentage = int((remaining / total) * 100)
         
     else:  # stopped
-        text = f"{ICON_STOPPED} Pomodoro"
-        tooltip = "Pomodoro Timer\n\nClick to start a 25-minute focus session.\nRight-click to reset."
+        if mode == "break":
+            text = f"{ICON_BREAK}"
+            duration = config["long_break_duration"] if completed > 0 and completed % cycles_before_long_break == 0 else config["break_duration"]
+            tooltip = f"Break Pending ({duration}m)\nClick to start break session.\nCompleted cycles: {completed}"
+        else:
+            text = f"{ICON_STOPPED}"
+            tooltip = f"Ready to Focus ({config['work_duration']}m)\nClick to start focus session.\nCompleted cycles: {completed}"
+        
         css_class = "stopped"
         percentage = 100
 
