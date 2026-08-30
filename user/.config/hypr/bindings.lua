@@ -1,0 +1,113 @@
+-- Keep only your personal keybinding overrides here. Add new bindings or
+-- unbind defaults before replacing them.
+
+-- See current bindings and descriptions:
+--   omarchy menu keybindings --print
+
+-- To disable every Omarchy default binding, set this in
+-- ~/.config/hypr/hyprland.lua before require("default.hypr.omarchy"), then add
+-- only the bindings you want below:
+--   omarchy_default_bindings = false
+
+-- To disable all preinstalled app/webapp bindings, set:
+--   omarchy_preinstalled_bindings = false
+
+-- Scratchpad genérico separado do Quake console do Omarchy. O console
+-- continua usando special:scratchpad; o scratchpad pessoal usa special:stash.
+hl.unbind("SUPER + S")
+hl.unbind("SUPER + ALT + S")
+hl.unbind("SUPER + grave")
+hl.unbind("SUPER + SHIFT + grave")
+
+o.bind("SUPER + S", "Toggle scratchpad", hl.dsp.workspace.toggle_special("stash"))
+o.bind("SUPER + ALT + S", "Move window to scratchpad", hl.dsp.window.move({ workspace = "special:stash", follow = false }))
+o.bind("SUPER + grave", "Toggle Quake console", hl.dsp.workspace.toggle_special("scratchpad"))
+o.bind("SUPER + SHIFT + grave", "Move window to Quake console", hl.dsp.window.move({ workspace = "special:scratchpad", follow = false }))
+
+-- Apps que substituem os defaults do Omarchy.
+
+-- Typora no lugar do Omawrite.
+hl.unbind("SUPER + SHIFT + W")
+o.bind("SUPER + SHIFT + W", "Typora", { launch = "typora --enable-wayland-ime" })
+
+-- Bitwarden no lugar do 1Password.
+hl.unbind("SUPER + SHIFT + SLASH")
+o.bind("SUPER + SHIFT + SLASH", "Passwords", { launch = "bitwarden-desktop %u" })
+
+-- IA: Gemini no lugar do ChatGPT, Claude num atalho próprio.
+hl.unbind("SUPER + SHIFT + A")
+o.bind("SUPER + SHIFT + A", "Gemini", { webapp = "https://gemini.google.com" })
+o.bind("SUPER + SHIFT + CTRL + A", "Claude", { webapp = "https://claude.ai/new" })
+
+-- Google Workspace no lugar do HEY.
+hl.unbind("SUPER + SHIFT + C")
+o.bind("SUPER + SHIFT + C", "Calendar", { webapp = "https://calendar.google.com/calendar/u/0/r" })
+
+hl.unbind("SUPER + SHIFT + E")
+o.bind("SUPER + SHIFT + E", "Email", { webapp = "https://mail.google.com/mail/u/0/#inbox" })
+
+-- Mensageiros: WhatsApp assume o atalho do Signal, Telegram assume o do WhatsApp.
+hl.unbind("SUPER + SHIFT + G")
+o.bind("SUPER + SHIFT + G", "WhatsApp", { webapp = "https://web.whatsapp.com/", focus = true })
+
+hl.unbind("SUPER + SHIFT + ALT + G")
+o.bind("SUPER + SHIFT + ALT + G", "Telegram", { launch = "Telegram", focus = "Telegram" })
+
+-- FIAP no lugar do Google Maps.
+hl.unbind("SUPER + SHIFT + S")
+o.bind("SUPER + SHIFT + S", "FIAP", { webapp = "https://on.fiap.com.br/" })
+
+-- Áudio. Caminhos absolutos: scripts em ~/.local/bin não são resolvidos de
+-- forma confiável pelo dispatcher de keybinds.
+o.bind("SUPER + M", "Mute microphone", "/home/kevin/.local/bin/omarchy-audio-input-mute")
+o.bind("SUPER + XF86AudioMicMute", "Switch audio input", "/home/kevin/.local/bin/omarchy-audio-input-switch")
+o.bind("SUPER + CTRL + ALT + M", "Switch audio input", "/home/kevin/.local/bin/omarchy-audio-input-switch")
+
+-- Brilho: o script pessoal espelha o brilho do painel interno nos monitores
+-- externos via DDC/CI, coisa que o omarchy-brightness-display não faz.
+hl.unbind("XF86MonBrightnessUp")
+o.bind("XF86MonBrightnessUp", "Brightness up", "/home/kevin/.local/bin/brigthness_control.sh +5%", { locked = true, repeating = true })
+
+hl.unbind("XF86MonBrightnessDown")
+o.bind("XF86MonBrightnessDown", "Brightness down", "/home/kevin/.local/bin/brigthness_control.sh 5%-", { locked = true, repeating = true })
+
+-- Backlight RGB do teclado do G15. O omarchy-brightness-keyboard empacotado
+-- procura /sys/class/leds/*kbd_backlight*, que não existe nesta máquina (o RGB
+-- fica atrás de ioctl no hidraw), então os atalhos vão direto na variante Dell.
+-- No Omarchy 3 esse desvio era um patch dentro do próprio wrapper, que agora é
+-- do pacman e não pode ser editado.
+hl.unbind("XF86KbdBrightnessUp")
+o.bind("XF86KbdBrightnessUp", "Keyboard brightness up", "omarchy-brightness-keyboard-dell-g15 up", { locked = true, repeating = true })
+
+hl.unbind("XF86KbdBrightnessDown")
+o.bind("XF86KbdBrightnessDown", "Keyboard brightness down", "omarchy-brightness-keyboard-dell-g15 down", { locked = true, repeating = true })
+
+hl.unbind("XF86KbdLightOnOff")
+o.bind("XF86KbdLightOnOff", "Keyboard backlight cycle", "omarchy-brightness-keyboard-dell-g15 cycle", { locked = true })
+
+-- Tecla G do G15 (F9 / Fn+F9 / Keycodes 148, 194, 187, 202): alterna o perfil de alta performance e ventoinhas a 100%.
+o.bind("code:148", "G-Mode toggle", "omarchy-gmode-dell-g15 toggle", { locked = true })
+o.bind("code:194", "G-Mode toggle", "omarchy-gmode-dell-g15 toggle", { locked = true })
+o.bind("code:187", "G-Mode toggle", "omarchy-gmode-dell-g15 toggle", { locked = true })
+o.bind("code:202", "G-Mode toggle", "omarchy-gmode-dell-g15 toggle", { locked = true })
+o.bind("F24", "G-Mode toggle", "omarchy-gmode-dell-g15 toggle", { locked = true })
+o.bind("XF86Launch1", "G-Mode toggle", "omarchy-gmode-dell-g15 toggle", { locked = true })
+o.bind("XF86Launch3", "G-Mode toggle", "omarchy-gmode-dell-g15 toggle", { locked = true })
+
+-- Seletor de modo gráfico do supergfxd. Antes era um menu do walker
+-- (menus:gpuswitcher); agora é uma rota no menu do Quickshell, definida em
+-- ~/.config/omarchy/extensions/omarchy-menu.jsonc.
+o.bind("SUPER + CTRL + G", "GPU mode (supergfxd)", "omarchy-menu summon trigger.hardware.gpu-mode")
+
+-- Faixa tocando no Spotify. O script vive no repo de dotfiles: o Quattro
+-- removeu o symlink ~/.config/waybar junto com o Waybar.
+o.bind(
+  "SUPER + CTRL + ALT + S",
+  "Show Spotify playing track",
+  "/home/kevin/dotfiles/user/.config/waybar/scripts/spotify-notification.sh"
+)
+
+-- super-w-wait:start
+super_w_wait = { timeout = 1500 }
+require("super-w-wait")
+-- super-w-wait:end
