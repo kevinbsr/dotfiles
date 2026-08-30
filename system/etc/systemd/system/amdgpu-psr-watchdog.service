@@ -1,0 +1,13 @@
+[Unit]
+Description=Desliga o PSR do amdgpu em runtime se a tempestade de DMUB voltar
+After=multi-user.target
+ConditionPathExists=/sys/module/amdgpu
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/amdgpu-psr-watchdog
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

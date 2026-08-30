@@ -1,0 +1,5 @@
+# Wi-Fi power saving follows the power source.
+# Points at /usr/local/bin: omarchy dropped its own omarchy-wifi-powersave, so
+# the old ~/.local/share/omarchy/bin path failed with exit 1 on every event.
+SUBSYSTEM=="power_supply", ATTR{type}=="Mains", ATTR{online}=="0", RUN+="/usr/bin/systemd-run --no-block --collect --unit=omarchy-wifi-powersave-on /usr/local/bin/omarchy-wifi-powersave on"
+SUBSYSTEM=="power_supply", ATTR{type}=="Mains", ATTR{online}=="1", RUN+="/usr/bin/systemd-run --no-block --collect --unit=omarchy-wifi-powersave-off /usr/local/bin/omarchy-wifi-powersave off"

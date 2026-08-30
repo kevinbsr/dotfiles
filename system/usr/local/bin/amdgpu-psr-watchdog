@@ -1,0 +1,97 @@
+#!/bin/bash
+# Vigia o bug do DMUB e desliga o PSR em runtime se ele voltar.
+#
+# Contexto: em 2026-08-09 o PSR do painel foi acusado de causar uma tempestade de
+#   amdgpu [drm] *ERROR* Error queueing DMUB command: status=2
+#   amdgpu [drm] *ERROR* dc_dmub_srv_log_diagnostic_data: DMCUB error
+# a ~5/s, congelando o desktop. O workaround foi amdgpu.dcdebugmask=0x10 na
+# cmdline, que desliga o PSR de vez. Mas aquilo era HIPOTESE: a outra variavel
+# que mudou no mesmo dia foi o compositor passar a dirigir duas GPUs.
+#
+# Em 2026-08-29 essa variavel mudou de novo (fbdev do nvidia_drm desligado,
+# roteamento de GPU corrigido, dGPU dormindo em D3cold), entao o PSR voltou a
+# ser liberado para teste. Este watchdog e a rede: se o bug voltar, o PSR morre
+# em runtime antes de o desktop travar, em vez de exigir um reboot -- que nesta
+# maquina e caro, porque NAO existe TTY visivel (vtcon0 e um dummy device).
+#
+# Desligar de vez outra vez: descomentar a linha KERNEL_CMDLINE em
+# /etc/limine-entry-tool.d/amdgpu-psr.conf e rodar `sudo limine-mkinitcpio`.
+set -uo pipefail
+
+THRESHOLD=5   # erros de DMUB...
+WINDOW=60     # ...dentro desta janela, em segundos
+
+# ATENCAO -- licao de 2026-08-30. O limiar acima foi calibrado para a tempestade
+# de 2026-08-09 (~5 erros/s, milhares em minutos). A falha real que derrubou a
+# sessao tinha a forma OPOSTA: UM erro de DMCUB e, 11s depois,
+#   amdgpu [drm] *ERROR* [CRTC:95:crtc-0] flip_done timed out
+# e o painel congelou de vez. O watchdog registrou "1/5 na janela" e ficou
+# esperando um quarto erro que nunca viria.
+# Por isso "flip_done timed out" agora dispara SOZINHO, sem contagem: um page
+# flip que nunca completa ja E a tela travada, nao um aviso previo.
+NOTIFY_USER="kevin"
+NOTIFY_UID="$(id -u "$NOTIFY_USER" 2>/dev/null || echo 1000)"
+
+log() { logger -t amdgpu-psr-watchdog "$*"; }
+
+find_switch() {
+  local f
+  for f in /sys/kernel/debug/dri/*/eDP-*/disallow_edp_enter_psr; do
+    [[ -w $f ]] && { echo "$f"; return 0; }
+  done
+  return 1
+}
+
+kill_psr() {
+  local sw
+  if sw="$(find_switch)"; then
+    echo 1 > "$sw" && log "PSR DESLIGADO em runtime ($sw) apos $THRESHOLD erros de DMUB em ${WINDOW}s"
+    sudo -u "$NOTIFY_USER" \
+      DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$NOTIFY_UID/bus" \
+      notify-send -u critical -i dialog-warning \
+      "PSR desligado automaticamente" \
+      "O bug do DMUB voltou. O PSR foi desativado em runtime; o desktop deve seguir estavel. Reative o workaround permanente se quiser." 2>/dev/null || true
+  else
+    log "ERRO: nao achei um disallow_edp_enter_psr escrivivel"
+  fi
+}
+
+# O debugfs so existe depois que o amdgpu registra o conector.
+for _ in $(seq 30); do
+  find_switch >/dev/null 2>&1 && break
+  sleep 2
+done
+
+if ! find_switch >/dev/null 2>&1; then
+  log "sem interruptor de PSR no debugfs; saindo (PSR provavelmente desabilitado na cmdline)"
+  exit 0
+fi
+
+log "vigiando DMUB (limiar: $THRESHOLD erros em ${WINDOW}s)"
+
+declare -a hits=()
+journalctl -k -f -n 0 --output=short-unix 2>/dev/null | while read -r line; do
+  case "$line" in
+    *"flip_done timed out"*)
+      log "flip_done timed out -- painel travando; desligando PSR imediatamente"
+      kill_psr
+      exit 0
+      ;;
+  esac
+  case "$line" in
+    *"DMUB"*|*"DMCUB"*)
+      case "$line" in *ERROR*|*error*) ;; *) continue ;; esac
+      now=$(date +%s)
+      hits+=("$now")
+      # descarta o que saiu da janela
+      keep=()
+      for t in "${hits[@]}"; do (( now - t <= WINDOW )) && keep+=("$t"); done
+      hits=("${keep[@]}")
+      log "erro de DMUB detectado (${#hits[@]}/$THRESHOLD na janela)"
+      if (( ${#hits[@]} >= THRESHOLD )); then
+        kill_psr
+        exit 0
+      fi
+      ;;
+  esac
+done

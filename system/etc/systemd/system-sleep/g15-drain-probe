@@ -1,0 +1,9 @@
+#!/bin/sh
+# TEMPORÁRIO (2026-08-29): carimba a carga da bateria na entrada/saída da
+# suspensão, para medir o dreno dormindo com fronteiras exatas.
+# Esta bateria expõe charge_* (µAh), NÃO energy_* -- converter com
+# voltage_min_design, que é o que o upower usa.
+# Remover com: sudo rm /etc/systemd/system-sleep/g15-drain-probe
+LOG=/var/log/g15-suspend-drain.log
+B=/sys/class/power_supply/BAT1
+echo "$1 $(date +%s) charge_uah=$(cat $B/charge_now 2>/dev/null) ac=$(cat /sys/class/power_supply/ACAD/online 2>/dev/null)" >> "$LOG"

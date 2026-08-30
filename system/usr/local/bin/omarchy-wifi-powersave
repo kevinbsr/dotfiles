@@ -1,0 +1,33 @@
+#!/bin/bash
+# /usr/local/bin/omarchy-wifi-powersave
+# Description: Turn Wi-Fi power saving on or off for every wireless interface.
+#
+# Replaces the omarchy command of the same name, which no longer ships. The
+# udev rule kept calling it at ~/.local/share/omarchy/bin/, so every power
+# event failed with exit code 1 and Wi-Fi power saving was never applied.
+
+set -euo pipefail
+
+case "${1:-}" in
+  on | off) state="$1" ;;
+  *)
+    echo "Usage: $0 {on|off}" >&2
+    exit 1
+    ;;
+esac
+
+found=0
+while read -r iface; do
+  [[ -n $iface ]] || continue
+  if iw dev "$iface" set power_save "$state" 2>/dev/null; then
+    found=1
+  else
+    logger -t "omarchy-wifi-powersave" "failed to set power_save $state on $iface"
+  fi
+done < <(iw dev 2>/dev/null | awk '/Interface/{print $2}')
+
+if ((found)); then
+  logger -t "omarchy-wifi-powersave" "power_save $state"
+else
+  logger -t "omarchy-wifi-powersave" "no wireless interface found"
+fi
