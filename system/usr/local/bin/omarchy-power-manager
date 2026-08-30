@@ -1,44 +1,108 @@
 #!/bin/bash
 # /usr/local/bin/omarchy-power-manager
-# Description: Manages dinamically Hz and Power Profiles based hardware events
+# Description: Switches the internal panel's refresh rate on power events.
 # Author: Kevin Benevides
+#
+# Power profiles are deliberately NOT set here. Omarchy's own udev rule
+# (99-power-profile.rules) already owns them via omarchy-powerprofiles-set,
+# and driving them from two places races on every plug/unplug.
 
 set -euo pipefail
 
-STATE=$1
-USER="kevin"
-USER_UID=$(id -u "$USER")
-export XDG_RUNTIME_DIR="/run/user/$USER_ID"
+STATE="${1:-}"
+USER_NAME="kevin"
+USER_UID="$(id -u "$USER_NAME")"
+RUNTIME_DIR="/run/user/$USER_UID"
+RATE_FAST="165"
+RATE_SLOW="60"
 
-# finds the active instance of hyprland to allow execution via root/udev
-export HYPRLAND_INSTANCE_SIGNATURE=$(ls -1t /tmp/hypr/ | head -n 1)
+# The actual mode switching lives in omarchy-refresh-rate, which the Hardware >
+# Refresh Rate menu also calls. Keeping it in one place means the resolution,
+# the scale and the hyprctl-eval quirk are resolved identically no matter who
+# asks. Absolute path: sudo does not carry the user's ~/.local/bin.
+REFRESH_RATE_BIN="/home/$USER_NAME/.local/bin/omarchy-refresh-rate"
 
-# function to execute commands on user context
-run_as_user() {
-	su - "$USER" -c "$1"
+log() { logger -t "omarchy-power" "$*"; }
+
+# Quanto esperar o Hyprland aparecer antes de desistir.
+WAIT_SECONDS=90
+
+# O udev dispara esta regra no BOOT, quando o power_supply surge -- muito antes
+# de existir sessao grafica. A versao anterior apenas logava "no Hyprland
+# runtime dir" e retornava, sem nunca reavaliar, entao o painel ficava em 165Hz
+# a sessao inteira quando a maquina bootava na bateria. Verificado em
+# 2026-08-29 (boot 20:55:12: "no Hyprland runtime dir ... skipping").
+# Esperar e seguro porque o systemd-run --no-block da regra ja nos desacopla do
+# udev, que mataria um RUN+= demorado.
+wait_for_hyprland() {
+  local waited=0 hypr_dir="$RUNTIME_DIR/hypr"
+  while (( waited < WAIT_SECONDS )); do
+    if [[ -d $hypr_dir && -n "$(ls -1 "$hypr_dir" 2>/dev/null | head -n 1)" ]]; then
+      (( waited > 0 )) && log "Hyprland apareceu apos ${waited}s de espera"
+      return 0
+    fi
+    sleep 2
+    waited=$(( waited + 2 ))
+  done
+  log "Hyprland nao apareceu em ${WAIT_SECONDS}s; desistindo da troca de refresh"
+  return 1
 }
 
+# A fonte pode ter mudado durante a espera (plugar o carregador enquanto o
+# desktop sobe). Aplicar o estado que o udev mandou seria aplicar o passado.
+current_state() {
+  [[ "$(cat /sys/class/power_supply/ACAD/online 2>/dev/null)" == "1" ]] && echo ac || echo bat
+}
+
+# udev runs this as root with an empty environment. The helper calls hyprctl,
+# which needs the runtime dir AND the instance signature -- the latter lives
+# under the user runtime dir, NOT /tmp/hypr (newer Hyprland dropped it). `su -`
+# would open a login shell and wipe whatever we exported, so the variables are
+# handed over explicitly with env(1).
+set_rate() {
+  local rate="$1" hypr_dir="$RUNTIME_DIR/hypr" sig reply
+
+  wait_for_hyprland || return 0
+
+  sig="$(ls -1t "$hypr_dir" 2>/dev/null | head -n 1 || true)"
+  if [[ -z $sig ]]; then
+    log "no active Hyprland instance; skipping refresh-rate change"
+    return 0
+  fi
+
+  if ! reply="$(sudo -u "$USER_NAME" env \
+    XDG_RUNTIME_DIR="$RUNTIME_DIR" \
+    HYPRLAND_INSTANCE_SIGNATURE="$sig" \
+    "$REFRESH_RATE_BIN" "$rate" 2>&1)"; then
+    log "failed to set ${rate}Hz: $reply"
+    return 1
+  fi
+}
+
+# Para ac/bat, reconciliar com a fonte real depois da espera.
 case "$STATE" in
-	ac)
-		# On power outlet: smooth screen, balanced processor
-		run_as_user "hyprctl keyword monitor 'eDP-1, 1920x1080@165.00400,auto,1.25'"
-		powerprofilesctl set balanced
-		logger -t "omarchy-power" "AC Mode: 165Hz + Balanced"
-		;;
-	bat)
-		# On battery: maximum survival
-		run_as_user "hyprctl keyword monitor 'eDP-1,1920x1080@60.01000,auto,1.25'"
-		powerprofilectl set power-saver
-		logger -t "omarchy-power" "BATTERY Mode: 60Hz + Power-Saver"
-		;;
-	game)
-		# On game: maximum performance
-		run_as_user "hyprctl keyword monitor 'eDP-1, 1920x1080@165.00400,auto,1.25'"
-		powerprofilesctl set performance
-		logger -t "omarchy-power" "GAME Mode: 165Hz + Performance"
-		;;
-	*)
-		echo "Uso: $0 {ac|bat|game}
-		exit 1
-		;;
+  ac|bat)
+    wait_for_hyprland || exit 0
+    STATE="$(current_state)"
+    ;;
+esac
+
+case "$STATE" in
+  ac)
+    set_rate "$RATE_FAST"
+    log "AC mode: 165Hz"
+    ;;
+  bat)
+    set_rate "$RATE_SLOW"
+    log "Battery mode: 60Hz"
+    ;;
+  game)
+    set_rate "$RATE_FAST"
+    powerprofilesctl set performance
+    log "Game mode: 165Hz + performance"
+    ;;
+  *)
+    echo "Usage: $0 {ac|bat|game}" >&2
+    exit 1
+    ;;
 esac

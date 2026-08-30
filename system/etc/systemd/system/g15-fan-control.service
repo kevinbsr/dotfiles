@@ -4,7 +4,9 @@ After=multi-user.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 /usr/local/bin/g15_fan_control.py
+RuntimeDirectory=g15-fan-control
+RuntimeDirectoryMode=0755
+ExecStart=/usr/bin/python3 -u /usr/local/bin/g15_fan_control.py
 Restart=always
 RestartSec=10
 

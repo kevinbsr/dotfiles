@@ -1,0 +1,5 @@
+# Backups com timestamp gerados por edicoes pontuais; nao versionar.
+*.bak
+*.bak.*
+*.orig
+__pycache__/

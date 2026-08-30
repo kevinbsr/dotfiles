@@ -1,3 +1,5 @@
-# centralizes the switch of refresh rate and energy profiles
-SUBSYSTEM=="power_supply", ATTR{type}=="Mains", ATTR{online}=="0", RUN+="/usr/local/bin/omarchy-power-manager bat"
-SUBSYSTEM=="power_supply", ATTR{type}=="Mains", ATTR{online}=="1", RUN+="/usr/local/bin/omarchy-power-manager ac"
+# Centralizes the refresh-rate switch on power-source changes.
+# Wrapped in systemd-run: udev kills RUN+= processes that linger, and talking
+# to Hyprland through sudo is not instantaneous.
+SUBSYSTEM=="power_supply", ATTR{type}=="Mains", ATTR{online}=="0", RUN+="/usr/bin/systemd-run --no-block --collect --unit=omarchy-display-power-bat /usr/local/bin/omarchy-power-manager bat"
+SUBSYSTEM=="power_supply", ATTR{type}=="Mains", ATTR{online}=="1", RUN+="/usr/bin/systemd-run --no-block --collect --unit=omarchy-display-power-ac /usr/local/bin/omarchy-power-manager ac"
