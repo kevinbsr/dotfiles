@@ -99,13 +99,6 @@ o.bind("XF86Launch3", "G-Mode toggle", "omarchy-gmode-dell-g15 toggle", { locked
 -- ~/.config/omarchy/extensions/omarchy-menu.jsonc.
 o.bind("SUPER + CTRL + G", "GPU mode (supergfxd)", "omarchy-menu summon trigger.hardware.gpu-mode")
 
--- Faixa tocando no Spotify. O script vive no repo de dotfiles: o Quattro
--- removeu o symlink ~/.config/waybar junto com o Waybar.
-o.bind(
-  "SUPER + CTRL + ALT + S",
-  "Show Spotify playing track",
-  "/home/kevin/dotfiles/user/.config/waybar/scripts/spotify-notification.sh"
-)
 
 -- super-w-wait:start
 super_w_wait = { timeout = 1500 }
