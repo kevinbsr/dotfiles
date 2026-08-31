@@ -86,10 +86,20 @@ hl.unbind("XF86KbdLightOnOff")
 o.bind("XF86KbdLightOnOff", "Keyboard backlight cycle", "omarchy-brightness-keyboard-dell-g15 cycle", { locked = true })
 
 -- Tecla G do G15 (F9 / Fn+F9 / Keycodes 148, 194, 187, 202): alterna o perfil de alta performance e ventoinhas a 100%.
-o.bind("code:148", "G-Mode toggle", "omarchy-gmode-dell-g15 toggle", { locked = true })
-o.bind("code:194", "G-Mode toggle", "omarchy-gmode-dell-g15 toggle", { locked = true })
-o.bind("code:187", "G-Mode toggle", "omarchy-gmode-dell-g15 toggle", { locked = true })
-o.bind("code:202", "G-Mode toggle", "omarchy-gmode-dell-g15 toggle", { locked = true })
+-- NAO vincular a tecla G por "code:N". O Hyprland usa keycode X11, que e o
+-- codigo evdev + 8, e as quatro linhas que existiam aqui capturavam teclas
+-- erradas (medido em 2026-08-31):
+--   code:148 -> evdev 140 = KEY_CALC        <- a tecla de CALCULADORA
+--   code:187 -> evdev 179 = KEY_KPLEFTPAREN <- o "(" do numpad
+--   code:194 -> evdev 186 = KEY_F16
+--   code:202 -> evdev 194 = KEY_F24         (ja vinculado por nome abaixo)
+-- Sintoma: apertar a calculadora mostrava a notificacao de G-Mode sem as
+-- ventoinhas subirem -- porque quem respondia era o omarchy-gmode-dell-g15
+-- (que fala com a EC), nao o daemon (que e quem aplica boost 0xff).
+--
+-- A tecla G de verdade emite evdev 701 (KEY_PERFORMANCE), que nem caberia num
+-- keycode X11 (701+8 = 709 > 255). Ela e tratada pelo listener evdev do
+-- g15_fan_control.py, que e o caminho correto e ja funciona.
 o.bind("F24", "G-Mode toggle", "omarchy-gmode-dell-g15 toggle", { locked = true })
 o.bind("XF86Launch1", "G-Mode toggle", "omarchy-gmode-dell-g15 toggle", { locked = true })
 o.bind("XF86Launch3", "G-Mode toggle", "omarchy-gmode-dell-g15 toggle", { locked = true })
