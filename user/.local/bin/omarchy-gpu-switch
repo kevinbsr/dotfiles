@@ -1,0 +1,74 @@
+#!/bin/bash
+
+# omarchy:summary=Switch GPU mode via supergfxd with confirmation
+
+MODE_ARG=$1
+
+if [[ -z "$MODE_ARG" ]]; then
+    echo "Usage: $0 <integrated|hybrid|vfio>"
+    exit 1
+fi
+
+case "${MODE_ARG,,}" in
+    integrated) MODE="Integrated" ;;
+    hybrid)     MODE="Hybrid" ;;
+    vfio)       MODE="Vfio" ;;
+    *) echo "Unknown mode: $MODE_ARG"; exit 1 ;;
+esac
+
+CURRENT=$(supergfxctl -g 2>/dev/null)
+
+if [[ "$MODE" == "$CURRENT" ]]; then
+    echo "Already in $MODE mode. No change needed."
+    sleep 2
+    exit 0
+fi
+
+echo "Switching GPU mode: $CURRENT → $MODE"
+echo ""
+
+# Unloading nvidia modules while the Wayland session is active causes a crash.
+# Going TO Integrated requires a reboot so the session ends cleanly first.
+# Going TO Hybrid/Vfio just loads modules (safe while running) and only needs logout.
+if [[ "$MODE" == "Integrated" ]]; then
+    ACTION="reboot"
+    ACTION_MSG="A reboot is required to safely unload the GPU drivers."
+else
+    ACTION="logout"
+    ACTION_MSG="A logout is required to apply the change."
+fi
+
+echo "$ACTION_MSG"
+echo ""
+
+if gum confirm "Switch to $MODE and $ACTION now?"; then
+    echo ""
+    echo "Updating /etc/supergfxd.conf..."
+
+    if [[ "$ACTION" == "logout" ]]; then
+        if sudo /usr/local/bin/supergfxd-set-mode "$MODE" --restart; then
+            echo "GPU modules loaded. Logging out..."
+            sleep 2
+            omarchy-system-logout
+        else
+            echo "Error: Failed to update GPU mode."
+            echo "Press any key to exit..."
+            read -n 1
+            exit 1
+        fi
+    else
+        if sudo /usr/local/bin/supergfxd-set-mode "$MODE"; then
+            echo "Config updated. Rebooting..."
+            sleep 2
+            omarchy-system-reboot
+        else
+            echo "Error: Failed to update GPU mode."
+            echo "Press any key to exit..."
+            read -n 1
+            exit 1
+        fi
+    fi
+else
+    echo "Cancelled."
+    sleep 1
+fi

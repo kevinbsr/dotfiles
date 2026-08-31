@@ -1,0 +1,96 @@
+#!/usr/bin/env python3
+"""Recovery script: erases AW-ELC flash to clear stuck animations."""
+
+import fcntl, glob, os, signal, sys, time
+
+SEND = 0xC0224806
+RECV = 0xC0224807
+
+def find_aw_elc():
+    for path in sorted(glob.glob("/sys/class/hidraw/hidraw*")):
+        uevent = os.path.join(os.path.realpath(path), "device", "uevent")
+        try:
+            content = open(uevent).read()
+            if "0000187C" in content.upper() and "00000550" in content.upper():
+                return f"/dev/{os.path.basename(path)}"
+        except:
+            pass
+    return None
+
+def make_packet(cmd, args=()):
+    buf = bytearray(34)
+    buf[0] = 0x00; buf[1] = 0x03; buf[2] = cmd
+    for i, b in enumerate(args):
+        buf[3 + i] = b
+    return bytes(buf)
+
+class Timeout(Exception):
+    pass
+
+def timeout_handler(signum, frame):
+    raise Timeout()
+
+def try_ioctl(f, ioctl_nr, data, timeout_s=3):
+    signal.signal(signal.SIGALRM, timeout_handler)
+    signal.alarm(timeout_s)
+    try:
+        fcntl.ioctl(f, ioctl_nr, data)
+        signal.alarm(0)
+        return True
+    except Timeout:
+        return False
+    except Exception as e:
+        signal.alarm(0)
+        print(f"  ioctl error: {e}")
+        return False
+
+print("AW-ELC Recovery: ERASE_FLASH")
+print("=" * 40)
+
+dev = find_aw_elc()
+if not dev:
+    print("ERROR: AW-ELC device not found. Is the system just booted?")
+    sys.exit(1)
+
+print(f"Found device: {dev}")
+
+with open(dev, "r+b", buffering=0) as f:
+    # Try ERASE_FLASH up to 5 times with short timeouts
+    for attempt in range(1, 6):
+        print(f"\nAttempt {attempt}/5: sending ERASE_FLASH (cmd 0xFF)...")
+        pkt = bytearray(make_packet(0xFF, [0x01]))
+        ok = try_ioctl(f, SEND, pkt, timeout_s=3)
+        if ok:
+            print("  ERASE_FLASH sent OK")
+            break
+        else:
+            print("  Timed out, retrying in 1s...")
+            time.sleep(1)
+    else:
+        print("\nFailed to send ERASE_FLASH after 5 attempts.")
+        print("Try rebooting with charger unplugged (full EC power cycle).")
+        sys.exit(1)
+
+    time.sleep(2)
+
+    # Verify: query ANIM — should show 0 animations
+    print("\nVerifying (querying ANIM)...")
+    pkt = bytearray(make_packet(0x20, [0x03]))
+    ok = try_ioctl(f, SEND, pkt, timeout_s=3)
+    if not ok:
+        print("  Query timed out, but ERASE_FLASH may have worked. Try rebooting.")
+        sys.exit(0)
+
+    buf = bytearray(34)
+    ok = try_ioctl(f, RECV, buf, timeout_s=3)
+    if ok:
+        print(f"  ANIM response: {buf.hex()}")
+        anim_count = buf[4]
+        print(f"  Animation count: {anim_count}")
+        if anim_count == 0:
+            print("\nSUCCESS: Flash cleared. No animations saved.")
+            print("Now run: omarchy-theme-set-keyboard-dell-g15")
+        else:
+            print(f"\nWARNING: {anim_count} animation(s) still in flash.")
+    else:
+        print("  Verify timed out (flash may still have been cleared).")

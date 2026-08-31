@@ -1,0 +1,39 @@
+#!/bin/bash
+
+set -euo pipefail
+
+source /home/kevin/.config/restic/omarchy.env
+export RESTIC_REPOSITORY RESTIC_PASSWORD_FILE
+export RESTIC_REST_USERNAME=omarchy
+export RESTIC_REST_PASSWORD="$(< "$RESTIC_PASSWORD_FILE")"
+
+lock_file="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/omarchy-restic-backup.lock"
+exec 9>"$lock_file"
+flock -n 9 || {
+    echo "another Omarchy backup is already running" >&2
+    exit 75
+}
+
+ragnar_available=false
+for attempt in 1 2 3 4 5; do
+    if tailscale ping --timeout=5s --c=1 100.94.156.12 >/dev/null 2>&1; then
+        ragnar_available=true
+        break
+    fi
+    echo "Ragnar unavailable over Tailscale (attempt ${attempt}/5)" >&2
+    if [ "$attempt" -lt 5 ]; then
+        sleep 60
+    fi
+done
+
+if [ "$ragnar_available" != true ]; then
+    echo "Ragnar remained unavailable after five attempts" >&2
+    exit 1
+fi
+
+exec /home/kevin/.local/bin/restic backup \
+    --host omarchy \
+    --tag automated-workstation \
+    --exclude-caches \
+    --exclude-file /home/kevin/.config/restic/omarchy-excludes.txt \
+    /home/kevin

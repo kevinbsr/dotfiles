@@ -1,0 +1,30 @@
+#!/bin/bash
+# Watches for Omarchy theme changes and syncs the GMK70 Split RGB color.
+# Monitors theme.name in the parent directory — keyboard.rgb is already in place
+# when theme.name is written, and the parent dir is never deleted during theme switches.
+# Also syncs when the keyboard reconnects (e.g. switching from BT back to 2.4GHz receiver).
+
+WATCH_DIR="$HOME/.config/omarchy/current"
+SCRIPT="$HOME/.local/bin/omarchy-theme-set-keyboard-gmk70"
+
+bash "$SCRIPT"
+
+# Sync on keyboard reconnect via udev
+(
+  udevadm monitor --udev --subsystem-match=hidraw 2>/dev/null | \
+  while IFS= read -r line; do
+    if [[ "$line" == *" add "* ]] && [[ "${line,,}" == *"342d"* ]]; then
+      sleep 1.5
+      bash "$SCRIPT"
+      # Drain remaining events from the same connection (3 hidraw interfaces connect at once)
+      while IFS= read -t 3 -r _; do :; done
+    fi
+  done
+) &
+UDEV_PID=$!
+
+trap "kill $UDEV_PID 2>/dev/null" EXIT INT TERM
+
+while inotifywait -q -e close_write --include 'theme\.name' "$WATCH_DIR" 2>/dev/null; do
+  bash "$SCRIPT"
+done

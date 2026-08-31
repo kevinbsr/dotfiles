@@ -1,0 +1,5 @@
+#!/bin/bash
+
+pactl subscribe | grep --line-buffered -E "(source|server)" | while read -r _; do
+  pkill -RTMIN+9 waybar
+done

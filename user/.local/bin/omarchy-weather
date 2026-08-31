@@ -1,0 +1,25 @@
+#!/bin/bash
+
+# Arquivo que guarda sua preferência (se está fixo ou auto)
+CONFIG_FILE="$HOME/.config/omarchy/weather_override"
+
+# Se o arquivo de override existir, usa a cidade escrita nele.
+# Se não, tenta o automático (ideal para viagens).
+if [ -f "$CONFIG_FILE" ]; then
+    CITY=$(cat "$CONFIG_FILE")
+    # Remove espaços e limpa para URL
+    CITY_URL="/${CITY// /+}" 
+else
+    # Modo Automático (Vazio = wttr.in detecta pelo IP)
+    CITY_URL="" 
+fi
+
+# Pega o clima. Adicionei timeout para não travar a barra se a internet cair.
+WEATHER=$(curl -s --max-time 5 "https://wttr.in${CITY_URL}?format=1" | tr -d '\n')
+
+# Se falhar (internet off), mostra ícone de desconectado
+if [ -z "$WEATHER" ]; then
+    echo "󰖪 Off"
+else
+    echo "$WEATHER"
+fi

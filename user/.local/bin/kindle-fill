@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+# Gerencia o arquivo de preenchimento do Kindle para bloquear updates automáticos.
+# Uso: kindle-fill [TAMANHO]
+#   TAMANHO: tamanho do novo kindle_fill_3.bin (ex: 4.4G, 3.8G, 2G)
+#   Sem argumento: exibe o espaço livre atual no Kindle
+
+set -euo pipefail
+
+KINDLE_URI="mtp://Amazon_Kindle_Paperwhite_Signature_Edition_GN433W11553201HX/Internal Storage/documents"
+FILL_FILE="kindle_fill_3.bin"
+TEMP_FILE="/tmp/${FILL_FILE}"
+
+check_mounted() {
+    if ! gio list "$KINDLE_URI" &>/dev/null; then
+        echo "Erro: Kindle não encontrado. Conecte via USB e tente novamente."
+        exit 1
+    fi
+}
+
+show_status() {
+    local free
+    free=$(gio info "mtp://Amazon_Kindle_Paperwhite_Signature_Edition_GN433W11553201HX/Internal Storage" 2>/dev/null \
+        | grep "filesystem::free" | awk '{print $2}')
+    local free_mb=$(( free / 1024 / 1024 ))
+    echo "Espaço livre no Kindle: ${free_mb} MB"
+    if (( free_mb < 200 )); then
+        echo "Status: PROTEGIDO (updates automáticos bloqueados)"
+    else
+        echo "Status: DESPROTEGIDO (há espaço para download de update)"
+    fi
+}
+
+if [[ $# -eq 0 ]]; then
+    check_mounted
+    show_status
+    exit 0
+fi
+
+SIZE="$1"
+
+# Convert human size to bytes
+to_bytes() {
+    local s="${1^^}"
+    if [[ "$s" =~ ^([0-9]+\.?[0-9]*)G$ ]]; then
+        echo "$(python3 -c "print(int(${BASH_REMATCH[1]} * 1024**3))")"
+    elif [[ "$s" =~ ^([0-9]+\.?[0-9]*)M$ ]]; then
+        echo "$(python3 -c "print(int(${BASH_REMATCH[1]} * 1024**2))")"
+    elif [[ "$s" =~ ^[0-9]+$ ]]; then
+        echo "$s"
+    else
+        echo "Erro: tamanho inválido '$1'. Use formato como 3.8G ou 500M." >&2
+        exit 1
+    fi
+}
+
+BYTES=$(to_bytes "$SIZE")
+
+echo "Kindle Fill — ajustando kindle_fill_3.bin para $SIZE ($BYTES bytes)"
+echo ""
+
+check_mounted
+show_status
+echo ""
+
+echo "1/3 Removendo arquivo antigo..."
+gio remove "$KINDLE_URI/$FILL_FILE" 2>/dev/null && echo "    Removido." || echo "    Não existia, continuando."
+
+echo "2/3 Criando novo arquivo ($SIZE)..."
+truncate -s "$BYTES" "$TEMP_FILE"
+echo "    Criado em $TEMP_FILE"
+
+echo "3/3 Enviando para o Kindle (pode demorar alguns minutos)..."
+gio copy "$TEMP_FILE" "$KINDLE_URI/$FILL_FILE"
+rm -f "$TEMP_FILE"
+echo "    Enviado."
+
+echo ""
+show_status
+echo ""
+echo "Lembre de reiniciar o Kindle após desconectar."

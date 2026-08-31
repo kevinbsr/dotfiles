@@ -1,0 +1,22 @@
+#!/bin/bash
+SOURCES=($(pactl list short sources | grep alsa_input | awk '{print $2}'))
+COUNT=${#SOURCES[@]}
+
+if [ $COUNT -le 1 ]; then
+    notify-send -u low "󰍬 Only one input device available"
+    exit 0
+fi
+
+CURRENT=$(pactl get-default-source)
+CURRENT_IDX=0
+for i in "${!SOURCES[@]}"; do
+    [ "${SOURCES[$i]}" = "$CURRENT" ] && CURRENT_IDX=$i && break
+done
+
+NEXT_IDX=$(( (CURRENT_IDX + 1) % COUNT ))
+NEXT="${SOURCES[$NEXT_IDX]}"
+pactl set-default-source "$NEXT"
+
+FRIENDLY=$(pactl list sources | grep -A 1 "Name: $NEXT" | grep "Description:" | cut -d: -f2- | xargs)
+notify-send -u low "󰍬 Input: $FRIENDLY"
+pkill -RTMIN+9 waybar

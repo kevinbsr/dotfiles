@@ -1,0 +1,47 @@
+#!/bin/bash
+
+# omarchy:summary=Toggle G-Mode (high-performance profile + 100% fan boost) on Dell G15 laptops
+# omarchy:args=<toggle|on|off|status>
+# omarchy:hidden=true
+
+action="${1:-toggle}"
+gmode_file="/tmp/gmode_override"
+
+is_on() {
+    if [[ -f $gmode_file ]]; then
+        [[ $(cat "$gmode_file") == "1" ]]
+    else
+        false
+    fi
+}
+
+case "$action" in
+    status)
+        if is_on; then
+            echo "on"
+        else
+            echo "off"
+        fi
+        exit 0
+        ;;
+    on)
+        echo "1" > "$gmode_file"
+        powerprofilesctl set performance 2>/dev/null || true
+        notify-send -u low -t 2000 -i "applications-games-symbolic" "G-Mode ATIVADO" "Perfil de Alta Performance & Ventoinhas a 100%" 2>/dev/null || true
+        ;;
+    off)
+        echo "0" > "$gmode_file"
+        powerprofilesctl set balanced 2>/dev/null || true
+        notify-send -u low -t 2000 -i "power-profile-balanced-symbolic" "G-Mode DESATIVADO" "Perfil Equilibrado e Controle Automático de Ventoinhas" 2>/dev/null || true
+        ;;
+    toggle)
+        if is_on; then
+            "$0" off
+        else
+            "$0" on
+        fi
+        ;;
+    *)
+        exit 1
+        ;;
+esac

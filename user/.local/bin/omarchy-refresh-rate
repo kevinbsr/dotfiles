@@ -1,0 +1,96 @@
+#!/usr/bin/env python3
+# omarchy:summary=Show or set the refresh rate of the internal display
+#
+# Usage:
+#   omarchy-refresh-rate           print the current rate, rounded (e.g. 165)
+#   omarchy-refresh-rate --list    list the rates available at this resolution
+#   omarchy-refresh-rate --state   JSON {"current":165,"available":[165,60]}
+#   omarchy-refresh-rate 60        switch to the mode with that rate
+#
+# Rates are compared rounded, so the menu can say "60" while the panel really
+# runs at 60.012 Hz. The current resolution and scale are read back from
+# Hyprland and re-sent unchanged, so switching the rate never resizes anything.
+
+import json
+import re
+import subprocess
+import sys
+
+MONITOR = "eDP-1"
+
+
+def hypr(*args):
+    return subprocess.run(
+        ["hyprctl", *args], capture_output=True, text=True, check=True
+    ).stdout
+
+
+def monitor():
+    for m in json.loads(hypr("-j", "monitors")):
+        if m["name"] == MONITOR:
+            return m
+    sys.exit(f"monitor not found: {MONITOR}")
+
+
+def rates_at_current_resolution(m):
+    res = f'{m["width"]}x{m["height"]}'
+    found = {}
+    for mode in m.get("availableModes", []):
+        parsed = re.fullmatch(r"(\d+x\d+)@([\d.]+)Hz", mode)
+        if parsed and parsed.group(1) == res:
+            found[round(float(parsed.group(2)))] = mode
+    return found
+
+
+def main():
+    args = sys.argv[1:]
+    m = monitor()
+
+    if not args:
+        print(round(m["refreshRate"]))
+        return
+
+    if args[0] in ("--list", "-l"):
+        for rate in sorted(rates_at_current_resolution(m), reverse=True):
+            print(rate)
+        return
+
+    # One shot for the Display panel: it needs both halves and should not pay
+    # for two hyprctl round-trips on every refresh tick.
+    if args[0] == "--state":
+        print(
+            json.dumps(
+                {
+                    "current": round(m["refreshRate"]),
+                    "available": sorted(rates_at_current_resolution(m), reverse=True),
+                }
+            )
+        )
+        return
+
+    try:
+        wanted = int(args[0])
+    except ValueError:
+        sys.exit(__doc__ or "usage: omarchy-refresh-rate [--list|<rate>]")
+
+    available = rates_at_current_resolution(m)
+    if wanted not in available:
+        offer = ", ".join(str(r) for r in sorted(available, reverse=True))
+        sys.exit(f"no mode at {wanted} Hz (available: {offer})")
+
+    mode = available[wanted].removesuffix("Hz")
+
+    # Omarchy configures Hyprland in Lua, and `hyprctl keyword` refuses to touch
+    # a non-legacy parser -- while still exiting 0. `eval` with hl.monitor() is
+    # the path that works; it answers "ok", so check that, not the exit code.
+    reply = hypr(
+        "eval",
+        f'hl.monitor({{ output = "{MONITOR}", mode = "{mode}", '
+        f'position = "auto", scale = {m["scale"]} }})',
+    ).strip()
+
+    if reply != "ok":
+        sys.exit(f"failed to set {wanted} Hz: {reply}")
+
+
+main()

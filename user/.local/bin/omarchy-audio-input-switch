@@ -1,0 +1,36 @@
+#!/bin/bash
+# omarchy:summary=Switch between audio inputs. By default mapped to Super + Mic Mute.
+sources=$(pactl -f json list sources | jq '[.[] | select(.name | endswith(".monitor") | not) | select((.ports | length == 0) or ([.ports[]? | .availability != "not available"] | any))]')
+sources_count=$(echo "$sources" | jq '. | length')
+if (( sources_count == 0 )); then
+  omarchy-swayosd-client --custom-message "No audio input devices found"
+  exit 1
+fi
+current_source_name=$(pactl get-default-source)
+current_source_index=$(echo "$sources" | jq -r --arg name "$current_source_name" 'map(.name) | index($name)')
+if [[ $current_source_index != "null" ]]; then
+  next_source_index=$(((current_source_index + 1) % sources_count))
+else
+  next_source_index=0
+fi
+next_source=$(echo "$sources" | jq -r ".[$next_source_index]")
+next_source_name=$(echo "$next_source" | jq -r '.name')
+next_source_description=$(echo "$next_source" | jq -r '.description')
+if [[ $next_source_description == "(null)" ]] || [[ $next_source_description == "null" ]] || [[ -z $next_source_description ]]; then
+  device_id=$(echo "$next_source" | jq -r '.properties."device.id"')
+  if [[ $device_id != "null" ]] && [[ -n $device_id ]]; then
+    next_source_description=$(wpctl status | grep -E "^\s*│?\s+${device_id}\." | sed -E 's/^.*[0-9]+\.\s+//' | sed -E 's/\s+\[.*$//')
+  fi
+  if [[ -z $next_source_description ]]; then
+    source_id=$(echo "$next_source" | jq -r '.properties."object.id"')
+    next_source_description=$(wpctl status | grep -E "\s+\*?\s+${source_id}\." | sed -E 's/^.*[0-9]+\.\s+//' | sed -E 's/\s+\[.*$//')
+  fi
+fi
+next_source_wpid=$(echo "$next_source" | jq -r '.properties."object.id"')
+if [[ $next_source_name != $current_source_name ]]; then
+  wpctl set-default "$next_source_wpid"
+fi
+omarchy-swayosd-client \
+  --custom-message "$next_source_description" \
+  --custom-icon "audio-input-microphone-symbolic"
+pkill -RTMIN+9 waybar

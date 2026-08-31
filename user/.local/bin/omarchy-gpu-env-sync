@@ -1,0 +1,148 @@
+#!/bin/bash
+# omarchy:summary=Sync the GPU block of ~/.config/hypr/envs.lua with the GPUs actually on the PCI bus
+#
+# Rewrites a marker-delimited block in envs.lua based on what is present right
+# now, so a BIOS graphics-mode change (Hybrid <-> Discrete) or a supergfxctl
+# mode switch never leaves Hyprland pointing at a device that does not exist --
+# which is what produces "CBackend::create() failed!" and a black screen.
+#
+# Safe to run from a TTY when the desktop will not come up. Changes only take
+# effect on the next session (env vars are read once, at Hyprland startup).
+#
+# Usage: omarchy-gpu-env-sync [--dry-run]
+
+set -euo pipefail
+
+# Omarchy 4 (Quattro) configures Hyprland in Lua -- envs.conf is no longer read.
+# The file only takes effect if hyprland.lua has require("hypr.envs").
+ENVS_CONF="$HOME/.config/hypr/envs.lua"
+BEGIN_MARK="-- >>> omarchy-gpu-env-sync -- auto-generated, do not edit by hand >>>"
+END_MARK="-- <<< omarchy-gpu-env-sync <<<"
+
+DRY_RUN=false
+[[ "${1:-}" == "--dry-run" ]] && DRY_RUN=true
+
+[[ -f "$ENVS_CONF" ]] || { echo "error: $ENVS_CONF not found" >&2; exit 1; }
+
+# Map each display-class (0300) PCI device to its /dev/dri/by-path card node.
+# A device with no card node has no loaded DRM driver, so listing it in
+# AQ_DRM_DEVICES would break Aquamarine -- skip those.
+amd_card=""
+nvidia_card=""
+while read -r addr vendor; do
+  card="/dev/dri/by-path/pci-${addr}-card"
+  [[ -e "$card" ]] || continue
+  case "$vendor" in
+    1002) amd_card="$card" ;;
+    10de) nvidia_card="$card" ;;
+  esac
+done < <(lspci -Dn | awk '$2 == "0300:" { split($3, id, ":"); print $1, id[1] }')
+
+# Comment blocks go in QUOTED heredocs so prose is never touched by the shell.
+# An unquoted one bit hard on 2026-08-09: backticks around a command name in a
+# comment ran as command substitution and pasted the whole output of
+# `hyprctl monitors all` into envs.lua, producing a file that Lua could not
+# parse. The one line that needs interpolation is appended separately.
+if [[ -n "$amd_card" && -n "$nvidia_card" ]]; then
+  mode="hybrid"
+  block=$(cat <<'EOF'
+-- Hybrid: AQ_DRM_DEVICES is deliberately NOT set. Aquamarine autodetects both
+-- GPUs, renders on the AMD (the internal panel hangs off it) and still sees
+-- the NVIDIA connectors, which is where the external HDMI and DisplayPort
+-- ports are wired on this G15.
+--
+-- Do NOT reintroduce it with /dev/dri/by-path/... names. Aquamarine splits
+-- AQ_DRM_DEVICES on ":" and by-path names contain colons, so
+-- "/dev/dri/by-path/pci-0000:06:00.0-card" is shredded into three nonexistent
+-- paths. The log says it plainly:
+--   drm: Failed to canonicalize path /dev/dri/by-path/pci-0000
+--   drm: Found no gpus to use, cannot continue
+-- and Hyprland then dies with "CBackend::create() failed!", looping SDDM with
+-- a TTY as the only way back in. That is what happened on 2026-08-09, with
+-- both the two-card and the iGPU-only list -- the colons broke both.
+--
+-- If pinning is ever genuinely needed, use colon-free node names
+-- (/dev/dri/card0, /dev/dri/card1) and be aware their numbering is not stable
+-- across boots, which is the reason by-path was reached for in the first place.
+--
+-- No global LIBVA/GLX override either: forcing those to nvidia moves the whole
+-- compositor onto the dGPU, which is what actually burned power here. Per-app
+-- offload goes through nvidia-offload.
+EOF
+)
+elif [[ -n "$nvidia_card" ]]; then
+  mode="nvidia-only"
+  block=$(cat <<'EOF'
+-- NVIDIA only (BIOS in Discrete/Dedicated mode). AQ_DRM_DEVICES is left unset
+-- so Aquamarine autodetects -- the dGPU drives the panel directly here, so
+-- routing video decode and GLX through it is correct.
+hl.env("NVD_BACKEND", "direct")
+hl.env("LIBVA_DRIVER_NAME", "nvidia")
+hl.env("__GLX_VENDOR_LIBRARY_NAME", "nvidia")
+EOF
+)
+elif [[ -n "$amd_card" ]]; then
+  mode="integrated"
+  block=$(cat <<'EOF'
+-- Integrated only (dGPU absent -- BIOS integrated mode, or supergfxctl removed
+-- it from the PCI bus). Nothing to pin: the iGPU is the only DRM device on the
+-- bus, so autodetection cannot pick anything else. AQ_DRM_DEVICES stays unset
+-- here too -- see the hybrid branch for why by-path names cannot be used.
+EOF
+)
+else
+  echo "error: no usable DRM device found on the PCI bus -- refusing to write" >&2
+  echo "       (a bad envs.lua here is what causes a black screen)" >&2
+  exit 1
+fi
+
+new_block="${BEGIN_MARK}
+-- GPU mode detected: ${mode}
+${block}
+${END_MARK}"
+
+# Strip any previous managed block, then append the new one.
+current=$(awk -v b="$BEGIN_MARK" -v e="$END_MARK" '
+  $0 == b { skip = 1 } !skip { print } $0 == e { skip = 0 }
+' "$ENVS_CONF")
+current="${current%$'\n'}"
+updated="${current}"$'\n\n'"${new_block}"
+
+if [[ "$updated" == "$(cat "$ENVS_CONF")" ]]; then
+  echo "GPU mode: ${mode} -- envs.lua already in sync, nothing to do."
+  exit 0
+fi
+
+if $DRY_RUN; then
+  echo "GPU mode: ${mode} -- would write:"
+  echo "$new_block"
+  exit 0
+fi
+
+# Never install Lua that does not parse. A broken envs.lua takes hyprland.lua's
+# require("hypr.envs") down with it, and the failure lands at login -- exactly
+# when the machine is hardest to rescue. Write to a temp file, check it, and
+# only then move it into place.
+tmp="$(mktemp "${ENVS_CONF}.XXXXXX")"
+trap 'rm -f "$tmp"' EXIT
+printf '%s\n' "$updated" >"$tmp"
+
+if command -v luac >/dev/null 2>&1; then
+  if ! luac -p "$tmp" 2>/dev/null; then
+    echo "error: generated Lua does not parse -- refusing to write" >&2
+    luac -p "$tmp" >&2 || true
+    exit 1
+  fi
+elif command -v lua >/dev/null 2>&1; then
+  if ! lua -e "assert(loadfile('$tmp'))" >/dev/null 2>&1; then
+    echo "error: generated Lua does not parse -- refusing to write" >&2
+    exit 1
+  fi
+else
+  echo "warning: no lua/luac available; writing without a syntax check" >&2
+fi
+
+mv "$tmp" "$ENVS_CONF"
+trap - EXIT
+echo "GPU mode: ${mode} -- envs.lua updated."
+echo "Log out (or reboot) to apply: env vars are read once, at session start."

@@ -1,0 +1,6 @@
+#!/bin/bash
+
+# omarchy:summary=Detect whether the computer is a Dell G15 laptop.
+
+[[ $(cat /sys/class/dmi/id/sys_vendor 2>/dev/null) == "Dell Inc." ]] &&
+  omarchy-hw-match "Dell G15"

@@ -1,0 +1,104 @@
+#!/bin/bash
+
+# omarchy:summary=Cycle keyboard backlight brightness on Dell G15 keyboards
+# omarchy:args=<up|down|cycle|off|restore>
+# omarchy:hidden=true
+
+direction="${1:-cycle}"
+
+pct=$(python3 - "$direction" << 'PYEOF'
+import fcntl, glob, os, sys, time
+
+SEND, RECV = 0xC0224806, 0xC0224807
+STATE_FILE = "/tmp/omarchy-dell-kbd-brightness"
+
+# DIM values sent to device: 0=full brightness, 100=off
+DIM_STEPS = [100, 65, 30, 0]  # off, low, medium, full
+PCT_STEPS  = [  0, 35, 70, 100]
+
+def find_dev():
+    for p in sorted(glob.glob("/sys/class/hidraw/hidraw*")):
+        ue = os.path.join(os.path.realpath(p), "device", "uevent")
+        try:
+            d = open(ue).read().upper()
+            if "0000187C" in d and "00000550" in d:
+                return "/dev/" + os.path.basename(p)
+        except Exception:
+            pass
+
+def pkt(cmd, args=()):
+    b = bytearray(34)
+    b[1] = 0x03
+    b[2] = cmd
+    for i, v in enumerate(args):
+        b[3 + i] = v
+    return b
+
+def send(f, cmd, args=()):
+    fcntl.ioctl(f, SEND, pkt(cmd, args))
+    resp = bytearray(34)
+    fcntl.ioctl(f, RECV, resp)
+    return resp
+
+def get_zone_count(f):
+    resp = send(f, 0x20, [0x02])
+    time.sleep(0.06)
+    return resp[6] if 1 <= resp[6] <= 32 else 16
+
+def apply_dim(dim_val):
+    dev = find_dev()
+    if not dev:
+        return
+    with open(dev, "r+b", buffering=0) as f:
+        zone_count = get_zone_count(f)
+        # DIM (0x26): dim_val(1B) + zone_count(2B BE) + zone_ids
+        args = [dim_val, 0x00, zone_count] + list(range(zone_count))
+        send(f, 0x26, args)
+        time.sleep(0.06)
+
+def read_idx():
+    try:
+        return int(open(STATE_FILE).read().strip())
+    except Exception:
+        return len(DIM_STEPS) - 1  # default: full brightness
+
+def write_idx(idx):
+    open(STATE_FILE, "w").write(str(idx))
+
+direction = sys.argv[1] if len(sys.argv) > 1 else "cycle"
+current_idx = read_idx()
+
+if direction == "off":
+    try:
+        apply_dim(100)
+    except Exception:
+        pass
+    sys.exit(0)
+
+if direction == "restore":
+    try:
+        apply_dim(DIM_STEPS[current_idx])
+        print(PCT_STEPS[current_idx])
+    except Exception:
+        pass
+    sys.exit(0)
+
+if direction == "up":
+    next_idx = min(current_idx + 1, len(DIM_STEPS) - 1)
+elif direction == "down":
+    next_idx = max(current_idx - 1, 0)
+else:  # cycle
+    next_idx = (current_idx + 1) % len(DIM_STEPS)
+
+try:
+    apply_dim(DIM_STEPS[next_idx])
+    write_idx(next_idx)
+    print(PCT_STEPS[next_idx])
+except Exception:
+    pass
+PYEOF
+)
+
+# O Omarchy 4 trocou o swayosd pelo OSD próprio do shell; o helper
+# omarchy-swayosd-kbd-brightness não existe mais.
+[[ -n $pct ]] && omarchy-osd -i keyboard -p "$pct"

@@ -1,0 +1,85 @@
+#!/bin/bash
+# omarchy:summary=Sincroniza o RGB do GMK70 com o tema atual
+# omarchy:hidden=true
+
+GMK70_THEME=~/.config/omarchy/current/theme/keyboard.rgb
+
+[[ -f $GMK70_THEME ]] || exit 0
+
+COLOR_HEX=$(cat "$GMK70_THEME")
+
+python3 - "$COLOR_HEX" << 'PYEOF'
+import sys, os, colorsys, glob, struct, fcntl
+
+GMK70_VID = "342D"
+GMK70_PID = "E491"
+PACKET_SIZE = 32
+CHANNEL = 3   # RgbMatrixChannel
+CMD_SET  = 0x07  # CustomSetValue
+CMD_SAVE = 0x09  # CustomSave
+IDX_BRIGHTNESS = 1
+IDX_EFFECT     = 2
+IDX_COLOR      = 4
+HIDIOCGRDESCSIZE = 0x80044801
+HIDIOCGRDESC     = 0x90044802
+
+def find_gmk70_hidraw():
+    for path in sorted(glob.glob("/sys/class/hidraw/hidraw*")):
+        real = os.path.realpath(path)
+        if GMK70_VID not in real.upper() or GMK70_PID not in real.upper():
+            continue
+        dev = f"/dev/{os.path.basename(path)}"
+        try:
+            fd = os.open(dev, os.O_RDONLY)
+            size = struct.unpack('I', fcntl.ioctl(fd, HIDIOCGRDESCSIZE, b'\x00\x00\x00\x00'))[0]
+            buf = struct.pack('I', size) + b'\x00' * size
+            raw = fcntl.ioctl(fd, HIDIOCGRDESC, buf, True)
+            desc = bytes(raw[4:4+size])
+            os.close(fd)
+            # USAGE_PAGE(0xFF60) encoded as: 06 60 FF
+            for i in range(len(desc) - 2):
+                if desc[i] == 0x06 and desc[i+1] == 0x60 and desc[i+2] == 0xFF:
+                    # 0x85 = Report ID tag — present when device uses report IDs (e.g. via cable)
+                    has_report_id = 0x85 in desc
+                    return dev, has_report_id
+        except Exception:
+            pass
+    return None, False
+
+def send_via(fd, cmd, args, has_report_id):
+    data = bytearray(PACKET_SIZE)
+    if has_report_id:
+        # byte 0 = report ID (0x00), byte 1 = cmd
+        data[1] = cmd
+        for i, b in enumerate(args):
+            data[2 + i] = b
+    else:
+        # no report ID: byte 0 = cmd
+        data[0] = cmd
+        for i, b in enumerate(args):
+            data[1 + i] = b
+    os.write(fd, bytes(data))
+
+hex_color = sys.argv[1].lstrip('#')
+r = int(hex_color[0:2], 16) / 255.0
+g = int(hex_color[2:4], 16) / 255.0
+b = int(hex_color[4:6], 16) / 255.0
+h, s, v = colorsys.rgb_to_hsv(r, g, b)
+hue = int(h * 255)
+# LEDs need higher saturation than screen colors to look vivid; use full sat for colored themes
+sat = 255 if s > 0.05 else 0
+
+hidraw, has_report_id = find_gmk70_hidraw()
+if not hidraw:
+    sys.exit(0)
+
+try:
+    fd = os.open(hidraw, os.O_RDWR)
+    send_via(fd, CMD_SET, [CHANNEL, IDX_COLOR, hue, sat], has_report_id)
+    send_via(fd, CMD_SET, [CHANNEL, IDX_BRIGHTNESS, 150], has_report_id)
+    send_via(fd, CMD_SAVE, [CHANNEL], has_report_id)
+    send_via(fd, CMD_SET, [CHANNEL, IDX_EFFECT, 1], has_report_id)
+    os.close(fd)
+except Exception:
+    pass
+PYEOF

@@ -1,0 +1,76 @@
+#!/bin/bash
+
+# omarchy:summary=Suspend the machine after a period of session idleness
+# omarchy:args=[--timeout SECONDS] [--poll SECONDS] [--dry-run]
+#
+# Substitui o terceiro listener do hypridle (`timeout = 600` ->
+# `systemctl suspend`), que se perdeu no upgrade para o Omarchy 4: o serviço de
+# idle do Quattro só implementa screensaver e lock.
+#
+# Por que não logind: `IdleAction=suspend` depende do idle hint da sessão, e
+# nada no Quattro chama SetIdleHint -- `loginctl show-session` reporta
+# IdleHint=no para sempre, então a ação nunca dispararia.
+#
+# Por que não hypridle: o pacote está na lista de aposentados do Quattro.
+#
+# Este watcher pergunta ao próprio shell se a sessão está ociosa, e com isso
+# herda de graça duas coisas que o hypridle não dava: o IdleMonitor do shell tem
+# respectInhibitors, então vídeo em tela cheia segura o suspend, e o toggle
+# "Stay Awake" da barra desliga a contagem.
+#
+# O bloqueio de tela antes de dormir NÃO é problema daqui: o lock roda aos 152s
+# (shell.json -> idle.lock), muito antes, e omarchy-sleep-lock.service cobre o
+# resto.
+
+set -uo pipefail
+
+timeout_seconds=${OMARCHY_IDLE_SUSPEND_TIMEOUT:-600}
+poll_seconds=${OMARCHY_IDLE_SUSPEND_POLL:-30}
+dry_run=false
+
+while (($#)); do
+  case "$1" in
+    --timeout) timeout_seconds="${2:?}"; shift 2 ;;
+    --poll) poll_seconds="${2:?}"; shift 2 ;;
+    --dry-run) dry_run=true; shift ;;
+    -h | --help) sed -n '3,25p' "$0"; exit 0 ;;
+    *) echo "Unknown option: $1" >&2; exit 1 ;;
+  esac
+done
+
+idle_for=0
+armed=true
+
+while :; do
+  sleep "$poll_seconds"
+
+  status=$(omarchy-shell idle status 2>/dev/null)
+  if [[ -z $status ]]; then
+    # Shell fora do ar (reinício, logout). Zera e tenta de novo.
+    idle_for=0
+    continue
+  fi
+
+  is_idle=$(jq -r '.idle // false' <<<"$status" 2>/dev/null)
+  stay_awake=$(jq -r '.stayAwake // false' <<<"$status" 2>/dev/null)
+
+  if [[ $is_idle != "true" || $stay_awake == "true" ]]; then
+    idle_for=0
+    armed=true
+    continue
+  fi
+
+  idle_for=$((idle_for + poll_seconds))
+
+  if ((idle_for >= timeout_seconds)) && $armed; then
+    # Desarma até a sessão voltar a ficar ativa, para não empilhar chamadas de
+    # suspend se o sistema demorar a dormir.
+    armed=false
+
+    if $dry_run; then
+      echo "would suspend: idle for ${idle_for}s (timeout ${timeout_seconds}s)"
+    else
+      systemctl suspend
+    fi
+  fi
+done

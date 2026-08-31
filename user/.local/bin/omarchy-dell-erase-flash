@@ -1,0 +1,58 @@
+#!/usr/bin/env python3
+"""Udev-triggered ERASE_FLASH: one fast attempt, no retries."""
+
+import fcntl, os, sys, time, threading
+
+SEND = 0xC0224806
+
+def make_packet(cmd, args=()):
+    buf = bytearray(34)
+    buf[0] = 0x00; buf[1] = 0x03; buf[2] = cmd
+    for i, b in enumerate(args):
+        buf[3 + i] = b
+    return bytes(buf)
+
+dev = sys.argv[1] if len(sys.argv) > 1 else None
+if not dev:
+    sys.exit(1)
+
+log = open("/tmp/aw-elc-erase.log", "a")
+
+def out(msg):
+    log.write(msg + "\n")
+    log.flush()
+
+out(f"[{time.strftime('%H:%M:%S')}] triggered for {dev}")
+
+time.sleep(0.1)
+
+try:
+    f = open(dev, "r+b", buffering=0)
+except Exception as e:
+    out(f"open error: {e}")
+    log.close()
+    sys.exit(1)
+
+pkt = bytearray(make_packet(0xFF, [0x01]))
+result = [None]
+
+def do_ioctl():
+    try:
+        fcntl.ioctl(f, SEND, pkt)
+        result[0] = True
+    except Exception as e:
+        result[0] = e
+
+t = threading.Thread(target=do_ioctl, daemon=True)
+t.start()
+t.join(timeout=0.5)
+
+if result[0] is True:
+    out(f"[{time.strftime('%H:%M:%S')}] ERASE_FLASH OK")
+elif t.is_alive():
+    out(f"[{time.strftime('%H:%M:%S')}] timed out in 500ms — stopping (no retries)")
+else:
+    out(f"[{time.strftime('%H:%M:%S')}] error: {result[0]}")
+
+f.close()
+log.close()

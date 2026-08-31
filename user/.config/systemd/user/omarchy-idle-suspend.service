@@ -1,0 +1,15 @@
+[Unit]
+Description=Suspend after 10 minutes of session idleness
+# O watcher pergunta o estado ao shell do Omarchy (quickshell), que sobe com a
+# sessão gráfica.
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/omarchy-idle-suspend
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=graphical-session.target
