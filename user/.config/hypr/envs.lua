@@ -52,4 +52,13 @@ hl.env("OMARCHY_OCR_LANGS", "eng+por")
 hl.env("__GLX_VENDOR_LIBRARY_NAME", "mesa")
 hl.env("LIBVA_DRIVER_NAME", "radeonsi")
 hl.env("VDPAU_DRIVER", "radeonsi")
-hl.env("VK_DRIVER_FILES", "/usr/share/vulkan/icd.d/radeon_icd.json")
+-- VK_DRIVER_FILES REMOVIDO em 2026-09-01. Restringir o ICD do Vulkan à AMD
+-- tornava a RTX 3060 invisivel para qualquer app Vulkan -- e jogos da Steam
+-- sao Vulkan, entao passaram a rodar na iGPU sem aviso nenhum.
+-- Nao valia o custo: o nvidia.lua do Omarchy nao seta VK_DRIVER_FILES (so
+-- LIBVA_DRIVER_NAME e __GLX_VENDOR_LIBRARY_NAME), entao isto nao desfazia bug
+-- nenhum, e a medicao de 2026-08-31 mostrou que NENHUMA das quatro variaveis
+-- era necessaria para a dGPU chegar a D3cold -- ela dormiu 100% do tempo com
+-- todas restauradas para nvidia.
+-- Vulkan voltando a enxergar as duas placas e "acorda no uso", que e o
+-- comportamento desejado: jogo pesado usa a dGPU, o resto fica na integrada.
