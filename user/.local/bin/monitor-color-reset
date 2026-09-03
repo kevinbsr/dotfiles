@@ -1,0 +1,48 @@
+#!/bin/bash
+# Restaura as configuracoes de cor do ASUS VG34WQML5A por DDC/CI.
+#
+# Por que existe: navegar no OSD do monitor derruba os ajustes para os padroes
+# de fabrica (Display Mode volta para Sports/Games, temperatura para 7500K),
+# que e o que deixa a imagem "lavada" e com cor estranha no desktop.
+#
+# VCP usados (confirmados em `ddcutil capabilities` deste modelo):
+#   DC = Display Mode      01 = Productivity
+#   14 = Select color preset  05 = 6500 K
+#
+# Nota: 8 bpc e proposital. Em 3440x1440@180 o enlace DisplayPort 1.4 comporta
+# 24,4 Gbps dos 25,9 Gbps uteis a 8 bits; a 10 bits daria 30,5 Gbps e a imagem
+# cintila. Isso e do lado do PC (monitors.lua), nao ha VCP para mudar.
+set -u
+
+find_display() {
+  ddcutil detect --brief 2>/dev/null \
+    | awk '/^Display /{d=$2} /VG34WQML5A/{print d; exit}'
+}
+
+D="${1:-$(find_display)}"
+if [ -z "${D:-}" ]; then
+  echo "monitor-color-reset: ASUS VG34WQML5A nao encontrado por DDC/CI." >&2
+  echo "  Confira se esta ligado e se DDC/CI esta ativo no menu do monitor." >&2
+  exit 1
+fi
+
+fail=0
+set_vcp() { # codigo valor descricao
+  if ddcutil -d "$D" setvcp "$1" "$2" 2>/dev/null; then
+    echo "  ok    $3"
+  else
+    echo "  FALHA $3" >&2
+    fail=1
+  fi
+}
+
+echo "ASUS VG34WQML5A (display $D):"
+set_vcp DC 01 "Display Mode -> Productivity"
+set_vcp 14 05 "Temperatura de cor -> 6500 K"
+
+echo "estado atual:"
+for f in DC 14 10 12; do
+  ddcutil -d "$D" getvcp "$f" 2>/dev/null | sed 's/^VCP code /  /'
+done
+
+exit $fail
