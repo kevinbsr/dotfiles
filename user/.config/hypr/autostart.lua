@@ -15,7 +15,13 @@ o.launch_on_start("hyprsunset")
 o.exec_on_start('bash -c "sleep 5 && nautilus --gapplication-service"')
 
 -- Monitor de microfone (script pessoal em ~/.local/bin).
-o.exec_on_start("/home/kevin/.local/bin/omarchy-mic-monitor")
+-- omarchy-mic-monitor REMOVIDO em 2026-09-02: era codigo morto desde o Quattro.
+-- Ele fazia apenas `pactl subscribe | ... pkill -RTMIN+9 waybar`, ou seja,
+-- sinalizava o Waybar para redesenhar o icone do microfone. O Waybar nao roda
+-- mais (segue instalado so como dependencia do waybar-module-pacman-updates-git,
+-- e ~/.config/waybar nem existe), entao o pkill nunca acertava nada -- ficavam
+-- dois processos vivos desde o boot assinando eventos do PulseAudio a toa.
+-- Quem mostra o microfone hoje e o plugin nativo omarchy.microphone.
 
 -- Cor e brilho do backlight do teclado. Variantes Dell explícitas: os wrappers
 -- genéricos do Quattro não conhecem o G15. Ver ~/.config/omarchy/hooks/theme-set.d/.

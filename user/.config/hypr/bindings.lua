@@ -114,3 +114,15 @@ o.bind("SUPER + CTRL + G", "GPU mode (supergfxd)", "omarchy-menu summon trigger.
 super_w_wait = { timeout = 1500 }
 require("super-w-wait")
 -- super-w-wait:end
+
+-- Workspaces 11-15 (monitor LG vertical). O Omarchy so vincula 1-10, em
+-- SUPER + code:(N+9) -- ou seja, as teclas de digito. Para 11-15 nao sobrou
+-- combinacao com digito: SUPER+ALT+1..5 ja e "trocar de janela em grupo"
+-- (tiling.lua:93) e SUPER+CTRL+1..9 e "abrir painel N" (utilities.lua:109).
+-- SUPER + F1..F12 estava inteiramente livre, e e um acorde de duas teclas em
+-- vez das quatro que sobrariam (SUPER+CTRL+ALT+digito).
+for i = 1, 5 do
+  local ws = tostring(i + 10)
+  o.bind("SUPER + F" .. i, "Switch to workspace " .. ws, hl.dsp.focus({ workspace = ws }))
+  o.bind("SUPER + SHIFT + F" .. i, "Move window to workspace " .. ws, hl.dsp.window.move({ workspace = ws }))
+end
