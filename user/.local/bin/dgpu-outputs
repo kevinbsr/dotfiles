@@ -1,0 +1,68 @@
+#!/bin/bash
+# Solta / devolve as saidas de video da dGPU NVIDIA no Hyprland.
+#
+# POR QUE EXISTE: neste G15 5515, DP-1 e HDMI-A-1 sao fisicamente da NVIDIA
+# (so o eDP-1 e da AMD). Enquanto o Hyprland dirige uma dessas saidas, a placa
+# nao pode entrar em D3cold -- e o custo medido e ~8,6 W, quase o dobro do
+# consumo ocioso do sistema.
+#
+# O problema real: tirar o cabo NAO devolve a placa. O Hyprland mantem a
+# alocacao de memoria de video pelo resto da sessao. Medido em 2026-09-03:
+#   sessao que usou monitor, cabos ja removidos : suspensa 414 ms em 7,4 h, 20,0 W
+#   sessao nova, sem monitor                    : suspensa quase 100%,      11,4 W
+# Ate entao a unica saida conhecida era relogar, o que nao e aceitavel.
+#
+# Este script resolve sem derrubar a sessao. Medido: `release` faz a dGPU cair
+# para suspended / Video Memory: Off em menos de 20 s.
+#
+# ARMADILHA IMPORTANTE, descoberta na marra: reabilitar NAO basta para o
+# DisplayPort voltar. O `hyprctl reload` reconfigura tudo do lado do Hyprland
+# -- modo, formato, posicao, tudo certo -- e mesmo assim o monitor fica sem
+# sinal (`ddcutil getvcp AE` reporta 0.01 Hz). Com DSC no meio, a negociacao do
+# enlace nao se refaz sozinha. O que ressuscita e um CICLO DE MODO: descer para
+# 60 Hz e subir de volta para 240. Toggle de DPMS nao resolve.
+set -u
+
+DP_MODE_BAIXO='hl.monitor({ output = "DP-1", mode = "3440x1440@60", position = "900x80", scale = 1, bitdepth = 8, cm = "srgb" })'
+DP_MODE_ALTO='hl.monitor({ output = "DP-1", mode = "3440x1440@240", position = "900x80", scale = 1, bitdepth = 10, cm = "srgb" })'
+PCI=/sys/bus/pci/devices/0000:01:00.0
+
+estado() {
+  local st vm
+  st=$(cat "$PCI/power/runtime_status" 2>/dev/null)
+  vm=$(grep 'Video Memory:' /proc/driver/nvidia/gpus/0000:01:00.0/power 2>/dev/null | awk '{print $NF}')
+  printf 'dGPU: %s | Video Memory: %s\n' "${st:-?}" "${vm:-?}"
+  hyprctl monitors -j 2>/dev/null | python3 -c 'import json,sys
+try: ms=json.load(sys.stdin)
+except Exception: raise SystemExit
+for m in ms: print("  %-10s %dx%d@%.2f" % (m["name"],m["width"],m["height"],m["refreshRate"]))'
+}
+
+release() {
+  hyprctl eval 'hl.monitor({ output = "DP-1", disabled = true })' >/dev/null
+  hyprctl eval 'hl.monitor({ output = "HDMI-A-1", disabled = true })' >/dev/null
+  echo "saidas da NVIDIA desabilitadas; a placa deve suspender em ~20s"
+}
+
+restore() {
+  hyprctl reload >/dev/null 2>&1; sleep 4
+  # Ciclo de modo: sem isto o DP fica sem sinal. Ver comentario acima.
+  hyprctl eval "$DP_MODE_BAIXO" >/dev/null 2>&1; sleep 5
+  hyprctl eval "$DP_MODE_ALTO"  >/dev/null 2>&1; sleep 5
+  # Verifica de verdade, perguntando ao MONITOR, nao ao Hyprland.
+  local d f
+  d=$(ddcutil detect --brief 2>/dev/null | awk '/^Display /{x=$2} /VG34WQML5A/{print x; exit}')
+  if [ -n "${d:-}" ]; then
+    f=$(ddcutil -d "$d" getvcp AE 2>/dev/null | sed 's/.*): //')
+    echo "monitor reporta: ${f:-<sem resposta>}"
+    case "${f:-}" in 0.0*|"") echo "AVISO: enlace nao voltou -- rode 'dgpu-outputs restore' de novo" >&2; return 1;; esac
+  fi
+  echo "telas restauradas"
+}
+
+case "${1:-status}" in
+  release) release ;;
+  restore) restore ;;
+  status)  estado ;;
+  *) echo "uso: dgpu-outputs {release|restore|status}" >&2; exit 2 ;;
+esac
