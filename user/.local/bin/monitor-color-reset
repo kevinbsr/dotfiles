@@ -1,17 +1,27 @@
 #!/bin/bash
-# Restaura as configuracoes de cor do ASUS VG34WQML5A por DDC/CI.
+# Restaura a calibracao do ASUS TUF VG34WQML5A por DDC/CI.
 #
-# Por que existe: navegar no OSD do monitor derruba os ajustes para os padroes
-# de fabrica (Display Mode volta para Sports/Games, temperatura para 7500K),
-# que e o que deixa a imagem "lavada" e com cor estranha no desktop.
+# POR QUE EXISTE: navegar no OSD do monitor derruba os ajustes. Pior, os
+# controles cascateiam entre si -- trocar o modo GameVisual SOBRESCREVE a
+# temperatura de cor, e trocar o preset de temperatura mexe no brilho. Por isso
+# a ordem abaixo importa e nao pode ser trocada:
 #
-# VCP usados (confirmados em `ddcutil capabilities` deste modelo):
-#   DC = Display Mode      01 = Productivity
-#   14 = Select color preset  05 = 6500 K
+#   1. Display Mode (DC)      -- primeiro, porque reseta a temperatura
+#   2. Preset de cor (14)      -- depois, porque reseta ganhos/brilho
+#   3. Ganhos RGB (16/18/1A)   -- por ultimo, e o ajuste fino
 #
-# Nota: 8 bpc e proposital. Em 3440x1440@180 o enlace DisplayPort 1.4 comporta
-# 24,4 Gbps dos 25,9 Gbps uteis a 8 bits; a 10 bits daria 30,5 Gbps e a imagem
-# cintila. Isso e do lado do PC (monitors.lua), nao ha VCP para mudar.
+# ATENCAO -- O CLAMP DE GAMUTE NAO ESTA AQUI. O `Display Color Space` (sRGB /
+# DCI-P3 / Wide Gamut) fica em Color no OSD e NAO e exposto por nenhum VCP:
+# conferido em `ddcutil capabilities`. Se o monitor for resetado de fabrica,
+# esse item volta para o gamute nativo e precisa ser posto em sRGB A MAO, no
+# menu. Sem isso, o resto desta calibracao fica sobre uma base errada.
+#
+# Os ganhos vieram de balanco de cinza NO OLHO (2026-09-03), nao de medicao:
+# 100/100/100 puxava para amarelo, 95/95/100 puxava para azul, 97/97/100 ficou
+# neutro. Isso acerta o cinza medio e mais nada -- nao corrige gama nem o
+# balanco nos extremos, e nao gera perfil ICC. Com um colorimetro, refazer.
+#
+# O lado do PC (240Hz, 10 bpc, cm = srgb) fica em ~/.config/hypr/monitors.lua.
 set -u
 
 find_display() {
@@ -34,15 +44,24 @@ set_vcp() { # codigo valor descricao
     echo "  FALHA $3" >&2
     fail=1
   fi
+  sleep 1
 }
 
 echo "ASUS VG34WQML5A (display $D):"
-set_vcp DC 01 "Display Mode -> Productivity"
-set_vcp 14 05 "Temperatura de cor -> 6500 K"
+set_vcp DC 0x01 "Display Mode"
+set_vcp 14 0x0b "Preset de cor -> User 1"
+set_vcp 16 97   "Ganho vermelho -> 97"
+set_vcp 18 97   "Ganho verde    -> 97"
+set_vcp 1A 100  "Ganho azul     -> 100"
+set_vcp 12 80   "Contraste      -> 80"
 
 echo "estado atual:"
-for f in DC 14 10 12; do
+for f in DC 14 16 18 1A 10 12; do
   ddcutil -d "$D" getvcp "$f" 2>/dev/null | sed 's/^VCP code /  /'
 done
+
+echo
+echo "Lembrete: confira no OSD que Color > Display Color Space esta em sRGB."
+echo "Esse item nao e ajustavel por DDC."
 
 exit $fail

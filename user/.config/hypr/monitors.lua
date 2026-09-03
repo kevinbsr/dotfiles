@@ -89,12 +89,19 @@ if max_hz and max_hz >= 240 then
   dp1_mode, dp1_depth = "3440x1440@240", 10
 end
 
+-- cm = "srgb" e explicito de proposito. E o padrao do Hyprland, mas o clamp
+-- de gamute e feito NO MONITOR (Color > Display Color Space = sRGB no OSD),
+-- entao o compositor NAO pode converter tambem -- correcao dupla lava a
+-- imagem. Deixar escrito evita que alguem "conserte" isto para cm = "edid"
+-- achando que resolve a saturacao: com o clamp por hardware ligado, resolve o
+-- oposto. Testado em 2026-09-03.
 hl.monitor({
   output = "DP-1",
   mode = dp1_mode,
   position = "900x80",
   scale = 1,
   bitdepth = dp1_depth,
+  cm = "srgb",
 })
 
 -- LG E2011 antigo, agora na VERTICAL. transform = 1 e 90 graus anti-horario
