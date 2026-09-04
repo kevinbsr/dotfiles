@@ -1,0 +1,14 @@
+[Unit]
+Description=Solta a dGPU NVIDIA quando os monitores externos saem
+Documentation=man:dgpu-outputs
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/dgpu-outputs watch
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target

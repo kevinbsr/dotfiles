@@ -1,68 +1,117 @@
 #!/bin/bash
 # Solta / devolve as saidas de video da dGPU NVIDIA no Hyprland.
 #
-# POR QUE EXISTE: neste G15 5515, DP-1 e HDMI-A-1 sao fisicamente da NVIDIA
-# (so o eDP-1 e da AMD). Enquanto o Hyprland dirige uma dessas saidas, a placa
-# nao pode entrar em D3cold -- e o custo medido e ~8,6 W, quase o dobro do
-# consumo ocioso do sistema.
-#
-# O problema real: tirar o cabo NAO devolve a placa. O Hyprland mantem a
-# alocacao de memoria de video pelo resto da sessao. Medido em 2026-09-03:
+# POR QUE EXISTE: neste G15 5515, DP-1 e HDMI-A-1 sao fisicamente da NVIDIA (so
+# o eDP-1 e da AMD). Enquanto o Hyprland dirige uma dessas saidas a placa nao
+# entra em D3cold. E tirar o cabo NAO devolve a placa: a alocacao de memoria de
+# video fica ate o fim da sessao. Medido em 2026-09-03, na bateria, tudo fechado:
 #   sessao que usou monitor, cabos ja removidos : suspensa 414 ms em 7,4 h, 20,0 W
 #   sessao nova, sem monitor                    : suspensa quase 100%,      11,4 W
-# Ate entao a unica saida conhecida era relogar, o que nao e aceitavel.
+# ~8,6 W, quase o dobro do consumo ocioso. `release` resolve em <20s sem relogar.
 #
-# Este script resolve sem derrubar a sessao. Medido: `release` faz a dGPU cair
-# para suspended / Video Memory: Off em menos de 20 s.
+# ARMADILHA: reabilitar NAO devolve o sinal do DisplayPort. O `hyprctl reload`
+# deixa tudo certo do lado do Hyprland e o monitor fica preto -- `ddcutil getvcp
+# AE` reporta 0.01 Hz. Com DSC a negociacao do enlace nao se refaz sozinha; o
+# que ressuscita e ciclo de modo (60Hz -> 240Hz). DPMS off/on nao resolve.
+# Por isso o restore confere perguntando ao MONITOR por DDC: o Hyprland reporta
+# sucesso mesmo com o enlace morto.
 #
-# ARMADILHA IMPORTANTE, descoberta na marra: reabilitar NAO basta para o
-# DisplayPort voltar. O `hyprctl reload` reconfigura tudo do lado do Hyprland
-# -- modo, formato, posicao, tudo certo -- e mesmo assim o monitor fica sem
-# sinal (`ddcutil getvcp AE` reporta 0.01 Hz). Com DSC no meio, a negociacao do
-# enlace nao se refaz sozinha. O que ressuscita e um CICLO DE MODO: descer para
-# 60 Hz e subir de volta para 240. Toggle de DPMS nao resolve.
+# `sync` e a logica do modo automatico: para cada saida da NVIDIA, desabilita se
+# o conector estiver FISICAMENTE desconectado, e reabilita se voltou. Nunca
+# desliga um monitor que esta em uso.
 set -u
 
-DP_MODE_BAIXO='hl.monitor({ output = "DP-1", mode = "3440x1440@60", position = "900x80", scale = 1, bitdepth = 8, cm = "srgb" })'
-DP_MODE_ALTO='hl.monitor({ output = "DP-1", mode = "3440x1440@240", position = "900x80", scale = 1, bitdepth = 10, cm = "srgb" })'
+# O hyprctl precisa da assinatura da instancia. Num servico systemd o ambiente
+# da sessao nao e herdado, entao derivamos do proprio socket.
+if [ -z "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; then
+  _s=$(ls -d "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"/hypr/*/ 2>/dev/null | head -1)
+  [ -n "$_s" ] && export HYPRLAND_INSTANCE_SIGNATURE="$(basename "$_s")"
+fi
+
+NV_OUTPUTS=(DP-1 HDMI-A-1)
 PCI=/sys/bus/pci/devices/0000:01:00.0
+DP_BAIXO='hl.monitor({ output = "DP-1", mode = "3440x1440@60", position = "900x80", scale = 1, bitdepth = 8, cm = "srgb" })'
+DP_ALTO='hl.monitor({ output = "DP-1", mode = "3440x1440@240", position = "900x80", scale = 1, bitdepth = 10, cm = "srgb" })'
 
-estado() {
-  local st vm
-  st=$(cat "$PCI/power/runtime_status" 2>/dev/null)
-  vm=$(grep 'Video Memory:' /proc/driver/nvidia/gpus/0000:01:00.0/power 2>/dev/null | awk '{print $NF}')
-  printf 'dGPU: %s | Video Memory: %s\n' "${st:-?}" "${vm:-?}"
-  hyprctl monitors -j 2>/dev/null | python3 -c 'import json,sys
+log() { printf '%s %s\n' "$(date '+%H:%M:%S')" "$*"; }
+
+conectado() { # $1 = nome do conector
+  [ "$(cat "/sys/class/drm/card0-$1/status" 2>/dev/null)" = "connected" ]
+}
+
+ativo_no_hypr() { # $1 = nome
+  hyprctl monitors -j 2>/dev/null | python3 -c '
+import json,sys
 try: ms=json.load(sys.stdin)
-except Exception: raise SystemExit
-for m in ms: print("  %-10s %dx%d@%.2f" % (m["name"],m["width"],m["height"],m["refreshRate"]))'
+except Exception: sys.exit(1)
+sys.exit(0 if any(m["name"]==sys.argv[1] for m in ms) else 1)' "$1"
 }
 
-release() {
-  hyprctl eval 'hl.monitor({ output = "DP-1", disabled = true })' >/dev/null
-  hyprctl eval 'hl.monitor({ output = "HDMI-A-1", disabled = true })' >/dev/null
-  echo "saidas da NVIDIA desabilitadas; a placa deve suspender em ~20s"
+gpu_estado() {
+  printf 'dGPU: %s | Video Memory: %s\n' \
+    "$(cat "$PCI/power/runtime_status" 2>/dev/null)" \
+    "$(grep 'Video Memory:' /proc/driver/nvidia/gpus/0000:01:00.0/power 2>/dev/null | awk '{print $NF}')"
 }
 
-restore() {
+desabilita() { hyprctl eval "hl.monitor({ output = \"$1\", disabled = true })" >/dev/null 2>&1; }
+
+reabilita_todos() {
   hyprctl reload >/dev/null 2>&1; sleep 4
-  # Ciclo de modo: sem isto o DP fica sem sinal. Ver comentario acima.
-  hyprctl eval "$DP_MODE_BAIXO" >/dev/null 2>&1; sleep 5
-  hyprctl eval "$DP_MODE_ALTO"  >/dev/null 2>&1; sleep 5
-  # Verifica de verdade, perguntando ao MONITOR, nao ao Hyprland.
-  local d f
-  d=$(ddcutil detect --brief 2>/dev/null | awk '/^Display /{x=$2} /VG34WQML5A/{print x; exit}')
-  if [ -n "${d:-}" ]; then
-    f=$(ddcutil -d "$d" getvcp AE 2>/dev/null | sed 's/.*): //')
-    echo "monitor reporta: ${f:-<sem resposta>}"
-    case "${f:-}" in 0.0*|"") echo "AVISO: enlace nao voltou -- rode 'dgpu-outputs restore' de novo" >&2; return 1;; esac
+  if conectado DP-1; then
+    hyprctl eval "$DP_BAIXO" >/dev/null 2>&1; sleep 5
+    hyprctl eval "$DP_ALTO"  >/dev/null 2>&1; sleep 5
+    local d f
+    d=$(ddcutil detect --brief 2>/dev/null | awk '/^Display /{x=$2} /VG34WQML5A/{print x; exit}')
+    if [ -n "${d:-}" ]; then
+      f=$(ddcutil -d "$d" getvcp AE 2>/dev/null | sed 's/.*): //')
+      log "monitor reporta: ${f:-<sem resposta>}"
+      case "${f:-}" in 0.0*|"") log "AVISO: enlace nao voltou"; return 1;; esac
+    fi
   fi
-  echo "telas restauradas"
+  return 0
+}
+
+sync_outputs() {
+  local mudou=0 precisa_reabilitar=0
+  for o in "${NV_OUTPUTS[@]}"; do
+    if conectado "$o"; then
+      ativo_no_hypr "$o" || { log "$o reconectado -> reabilitando"; precisa_reabilitar=1; }
+    else
+      if ativo_no_hypr "$o"; then log "$o desconectado -> soltando"; desabilita "$o"; mudou=1; fi
+    fi
+  done
+  [ "$precisa_reabilitar" = 1 ] && { reabilitar_seguro; mudou=1; }
+  [ "$mudou" = 1 ] && { sleep 3; log "$(gpu_estado)"; }
+  return 0
+}
+
+reabilitar_seguro() { reabilita_todos || reabilita_todos; }
+
+watch_mode() {
+  local sock
+  sock=$(ls "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"/hypr/*/.socket2.sock 2>/dev/null | head -1)
+  [ -z "$sock" ] && { log "socket de eventos do Hyprland nao encontrado"; exit 1; }
+  log "ouvindo $sock"
+  sync_outputs
+  socat -U - "UNIX-CONNECT:$sock" 2>/dev/null | while read -r linha; do
+    case "$linha" in
+      monitorremoved*|monitoradded*|monitoraddedv2*)
+        log "evento: $linha"
+        sleep 2
+        sync_outputs
+        ;;
+    esac
+  done
 }
 
 case "${1:-status}" in
-  release) release ;;
-  restore) restore ;;
-  status)  estado ;;
-  *) echo "uso: dgpu-outputs {release|restore|status}" >&2; exit 2 ;;
+  release) for o in "${NV_OUTPUTS[@]}"; do desabilita "$o"; done; log "saidas desabilitadas"; sleep 20; log "$(gpu_estado)" ;;
+  restore) reabilitar_seguro && log "telas restauradas" ;;
+  sync)    sync_outputs ;;
+  watch)   watch_mode ;;
+  status)  gpu_estado; hyprctl monitors -j | python3 -c '
+import json,sys
+for m in json.load(sys.stdin): print("  %-10s %dx%d@%.2f" % (m["name"],m["width"],m["height"],m["refreshRate"]))'
+           for o in "${NV_OUTPUTS[@]}"; do printf '  %-10s conector: %s\n' "$o" "$(cat /sys/class/drm/card0-$o/status 2>/dev/null)"; done ;;
+  *) echo "uso: dgpu-outputs {release|restore|sync|watch|status}" >&2; exit 2 ;;
 esac
