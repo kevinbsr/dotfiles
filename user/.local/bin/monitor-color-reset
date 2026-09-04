@@ -22,10 +22,17 @@
 # ele no OSD nao foi conferido, e os nomes do ddcutil nao correspondem aos da
 # ASUS (o 0x07, que o ddcutil chama de "Professional", e o FPS Mode).
 #
-# O contraste em 100 e escolha dele. Registrei a ressalva de que acima de ~75
-# o painel tende a cortar altas-luzes; ele optou por manter assim.
+# ATUALIZADO de novo em 2026-09-04: contraste voltou para 80 e os ganhos para
+# 100/100/100 (neutro de fabrica), descartando o balanco de cinza que tinhamos
+# feito no olho. Foi escolha dele -- manter assim.
 #
-# Os ganhos vieram de balanco de cinza NO OLHO (2026-09-03), nao de medicao:
+# Historico do balanco, caso um dia se queira refazer: contra um alvo de cinza
+# neutro, 100/100/100 puxava para amarelo e 95/95/100 puxava para azul; o meio,
+# 97/97/100, ficou neutro. Isso acerta o cinza medio e nada alem -- sem gama,
+# sem extremos, sem perfil ICC. Com colorimetro, refazer do zero.
+#
+# CUIDADO: trocar o Display Mode ZERA os ganhos sozinho. Se eles aparecerem em
+# 100/100/100 sem ninguem ter mexido, provavelmente foi isso, nao escolha.
 # 100/100/100 puxava para amarelo, 95/95/100 puxava para azul, 97/97/100 ficou
 # neutro. Isso acerta o cinza medio e mais nada -- nao corrige gama nem o
 # balanco nos extremos, e nao gera perfil ICC. Com um colorimetro, refazer.
@@ -59,10 +66,10 @@ set_vcp() { # codigo valor descricao
 echo "ASUS VG34WQML5A (display $D):"
 set_vcp DC 0x05 "Display Mode (GameVisual escolhido pelo Kevin)"
 set_vcp 14 0x0b "Preset de cor -> User 1"
-set_vcp 16 97   "Ganho vermelho -> 97"
-set_vcp 18 97   "Ganho verde    -> 97"
+set_vcp 16 100  "Ganho vermelho -> 100"
+set_vcp 18 100  "Ganho verde    -> 100"
 set_vcp 1A 100  "Ganho azul     -> 100"
-set_vcp 12 100  "Contraste      -> 100"
+set_vcp 12 80   "Contraste      -> 80"
 
 echo "estado atual:"
 for f in DC 14 16 18 1A 10 12; do
