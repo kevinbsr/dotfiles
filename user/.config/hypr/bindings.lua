@@ -20,9 +20,17 @@ hl.unbind("SUPER + grave")
 hl.unbind("SUPER + SHIFT + grave")
 
 o.bind("SUPER + S", "Toggle scratchpad", hl.dsp.workspace.toggle_special("stash"))
-o.bind("SUPER + ALT + S", "Move window to scratchpad", hl.dsp.window.move({ workspace = "special:stash", follow = false }))
+o.bind(
+	"SUPER + ALT + S",
+	"Move window to scratchpad",
+	hl.dsp.window.move({ workspace = "special:stash", follow = false })
+)
 o.bind("SUPER + grave", "Toggle Quake console", hl.dsp.workspace.toggle_special("scratchpad"))
-o.bind("SUPER + SHIFT + grave", "Move window to Quake console", hl.dsp.window.move({ workspace = "special:scratchpad", follow = false }))
+o.bind(
+	"SUPER + SHIFT + grave",
+	"Move window to Quake console",
+	hl.dsp.window.move({ workspace = "special:scratchpad", follow = false })
+)
 
 -- Apps que substituem os defaults do Omarchy.
 
@@ -66,10 +74,20 @@ o.bind("SUPER + CTRL + ALT + M", "Switch audio input", "/home/kevin/.local/bin/o
 -- Brilho: o script pessoal espelha o brilho do painel interno nos monitores
 -- externos via DDC/CI, coisa que o omarchy-brightness-display não faz.
 hl.unbind("XF86MonBrightnessUp")
-o.bind("XF86MonBrightnessUp", "Brightness up", "/home/kevin/.local/bin/brigthness_control.sh +5%", { locked = true, repeating = true })
+o.bind(
+	"XF86MonBrightnessUp",
+	"Brightness up",
+	"/home/kevin/.local/bin/brigthness_control.sh +5%",
+	{ locked = true, repeating = true }
+)
 
 hl.unbind("XF86MonBrightnessDown")
-o.bind("XF86MonBrightnessDown", "Brightness down", "/home/kevin/.local/bin/brigthness_control.sh 5%-", { locked = true, repeating = true })
+o.bind(
+	"XF86MonBrightnessDown",
+	"Brightness down",
+	"/home/kevin/.local/bin/brigthness_control.sh 5%-",
+	{ locked = true, repeating = true }
+)
 
 -- Backlight RGB do teclado do G15. O omarchy-brightness-keyboard empacotado
 -- procura /sys/class/leds/*kbd_backlight*, que não existe nesta máquina (o RGB
@@ -77,13 +95,39 @@ o.bind("XF86MonBrightnessDown", "Brightness down", "/home/kevin/.local/bin/brigt
 -- No Omarchy 3 esse desvio era um patch dentro do próprio wrapper, que agora é
 -- do pacman e não pode ser editado.
 hl.unbind("XF86KbdBrightnessUp")
-o.bind("XF86KbdBrightnessUp", "Keyboard brightness up", "omarchy-brightness-keyboard-dell-g15 up", { locked = true, repeating = true })
+o.bind(
+	"XF86KbdBrightnessUp",
+	"Keyboard brightness up",
+	"omarchy-brightness-keyboard-dell-g15 up",
+	{ locked = true, repeating = true }
+)
 
 hl.unbind("XF86KbdBrightnessDown")
-o.bind("XF86KbdBrightnessDown", "Keyboard brightness down", "omarchy-brightness-keyboard-dell-g15 down", { locked = true, repeating = true })
+o.bind(
+	"XF86KbdBrightnessDown",
+	"Keyboard brightness down",
+	"omarchy-brightness-keyboard-dell-g15 down",
+	{ locked = true, repeating = true }
+)
 
 hl.unbind("XF86KbdLightOnOff")
 o.bind("XF86KbdLightOnOff", "Keyboard backlight cycle", "omarchy-brightness-keyboard-dell-g15 cycle", { locked = true })
+
+-- A tecla de backlight do TECLADO INTERNO precisa de bind por CODIGO, nao por
+-- nome. Ela emite KEY_F18 (evdev 188 -> keycode X11 196), mas nao ha mapeamento
+-- xkb para o keysym F18: medido em 2026-09-04, o bind "F18" nunca dispara e o
+-- "code:196" dispara sempre.
+--
+-- Isto substitui o g15-backlight-key-listener.py, que lia /dev/input direto e
+-- parou de funcionar em 2026-08-30, quando a migracao 1787865477.sh do Omarchy
+-- removeu o usuario do grupo `input` ("Drop the default input group grant,
+-- which allowed unprivileged keylogging"). O compositor le o teclado via
+-- logind, com privilegio, entao nao precisa daquele grupo -- ou seja, esta
+-- solucao NAO desfaz o endurecimento do Omarchy. Nao reverter para o listener.
+--
+-- O wrapper existe pelo anti-repique: a tecla repete enquanto pressionada
+-- (19 eventos em 7 s, medido), e sem filtro cada toque pula varios niveis.
+o.bind("code:196", "Keyboard backlight cycle", "/home/kevin/.local/bin/kbd-backlight-cycle cycle", { locked = true })
 
 -- Tecla G do G15 (F9 / Fn+F9 / Keycodes 148, 194, 187, 202): alterna o perfil de alta performance e ventoinhas a 100%.
 -- NAO vincular a tecla G por "code:N". O Hyprland usa keycode X11, que e o
@@ -109,7 +153,6 @@ o.bind("XF86Launch3", "G-Mode toggle", "omarchy-gmode-dell-g15 toggle", { locked
 -- ~/.config/omarchy/extensions/omarchy-menu.jsonc.
 o.bind("SUPER + CTRL + G", "GPU mode (supergfxd)", "omarchy-menu summon trigger.hardware.gpu-mode")
 
-
 -- super-w-wait:start
 super_w_wait = { timeout = 1500 }
 require("super-w-wait")
@@ -122,7 +165,11 @@ require("super-w-wait")
 -- SUPER + F1..F12 estava inteiramente livre, e e um acorde de duas teclas em
 -- vez das quatro que sobrariam (SUPER+CTRL+ALT+digito).
 for i = 1, 5 do
-  local ws = tostring(i + 10)
-  o.bind("SUPER + F" .. i, "Switch to workspace " .. ws, hl.dsp.focus({ workspace = ws }))
-  o.bind("SUPER + SHIFT + F" .. i, "Move window to workspace " .. ws, hl.dsp.window.move({ workspace = ws }))
+	local ws = tostring(i + 10)
+	o.bind("SUPER + F" .. i, "Switch to workspace " .. ws, hl.dsp.focus({ workspace = ws }))
+	o.bind("SUPER + SHIFT + F" .. i, "Move window to workspace " .. ws, hl.dsp.window.move({ workspace = ws }))
 end
+
+-- Fake fullscreen: faz o aplicativo achar que está em tela cheia sem mudar sua geometria no tiling.
+o.bind("SUPER + CTRL + SHIFT + F", "Fake full screen", hl.dsp.window.fullscreen_state({ internal = 0, client = 2 }))
+
