@@ -1,0 +1,119 @@
+{
+  "name": "tv",
+  "created_at": "2026-09-08T06:53:02.580784Z",
+  "updated_at": "2026-09-08T06:53:02.580784Z",
+  "outputs": [
+    {
+      "key": "lg display|0x067e",
+      "match_key": "lg display|0x067e",
+      "name": "eDP-1",
+      "description": "LG Display 0x067E",
+      "make": "LG Display",
+      "model": "0x067E",
+      "enabled": true,
+      "mode": "1920x1080@165.00Hz",
+      "width": 1920,
+      "height": 1080,
+      "refresh": 165.004,
+      "x": 4800,
+      "y": 368,
+      "scale": 1.25,
+      "transform": 0,
+      "bitdepth": 8,
+      "cm": "srgb",
+      "sdr_brightness": 1,
+      "sdr_saturation": 1,
+      "sdr_min_luminance": 0.2,
+      "sdr_max_luminance": 80,
+      "min_luminance": 0
+    },
+    {
+      "key": "sony|sony tv|0x01010101",
+      "match_key": "sony|sony tv|0x01010101",
+      "name": "HDMI-A-1",
+      "description": "Sony SONY TV 0x01010101",
+      "make": "Sony",
+      "model": "SONY TV",
+      "enabled": true,
+      "mode": "1360x768@60.02Hz",
+      "width": 1360,
+      "height": 768,
+      "refresh": 60.02,
+      "x": 3440,
+      "y": 464,
+      "scale": 1.0,
+      "transform": 0,
+      "bitdepth": 8,
+      "cm": "srgb",
+      "sdr_brightness": 1,
+      "sdr_saturation": 1,
+      "sdr_min_luminance": 0.2,
+      "sdr_max_luminance": 80,
+      "min_luminance": 0
+    }
+  ],
+  "workspaces": {
+    "enabled": true,
+    "strategy": "manual",
+    "max_workspaces": 15,
+    "group_size": 5,
+    "monitor_order": [
+      "lg display|0x067e",
+      "sony|sony tv|0x01010101"
+    ],
+    "rules": [
+      {
+        "workspace": "6",
+        "output_key": "lg display|0x067e",
+        "output_name": "eDP-1",
+        "default": true
+      },
+      {
+        "workspace": "7",
+        "output_key": "lg display|0x067e",
+        "output_name": "eDP-1"
+      },
+      {
+        "workspace": "8",
+        "output_key": "lg display|0x067e",
+        "output_name": "eDP-1"
+      },
+      {
+        "workspace": "9",
+        "output_key": "lg display|0x067e",
+        "output_name": "eDP-1"
+      },
+      {
+        "workspace": "10",
+        "output_key": "lg display|0x067e",
+        "output_name": "eDP-1"
+      },
+      {
+        "workspace": "11",
+        "output_key": "sony|sony tv|0x01010101",
+        "output_name": "HDMI-A-1",
+        "default": true
+      },
+      {
+        "workspace": "12",
+        "output_key": "sony|sony tv|0x01010101",
+        "output_name": "HDMI-A-1"
+      },
+      {
+        "workspace": "13",
+        "output_key": "sony|sony tv|0x01010101",
+        "output_name": "HDMI-A-1"
+      },
+      {
+        "workspace": "14",
+        "output_key": "sony|sony tv|0x01010101",
+        "output_name": "HDMI-A-1"
+      },
+      {
+        "workspace": "15",
+        "output_key": "sony|sony tv|0x01010101",
+        "output_name": "HDMI-A-1"
+      }
+    ]
+  }
+}

@@ -1,0 +1,170 @@
+{
+  "name": "casa",
+  "created_at": "2026-09-08T06:53:02.580784Z",
+  "updated_at": "2026-09-08T06:53:02.580784Z",
+  "outputs": [
+    {
+      "key": "asustek computer inc|vg34wqml5a|w2lmdw002227",
+      "match_key": "asustek computer inc|vg34wqml5a|w2lmdw002227",
+      "name": "DP-1",
+      "description": "ASUSTek COMPUTER INC VG34WQML5A W2LMDW002227",
+      "make": "ASUSTek COMPUTER INC",
+      "model": "VG34WQML5A",
+      "enabled": true,
+      "mode": "3440x1440@240.00Hz",
+      "width": 3440,
+      "height": 1440,
+      "refresh": 240.0,
+      "x": 900,
+      "y": 80,
+      "scale": 1.0,
+      "transform": 0,
+      "bitdepth": 10,
+      "cm": "srgb",
+      "sdr_brightness": 1,
+      "sdr_saturation": 1,
+      "sdr_min_luminance": 0.2,
+      "sdr_max_luminance": 80,
+      "min_luminance": 0
+    },
+    {
+      "key": "lg display|0x067e",
+      "match_key": "lg display|0x067e",
+      "name": "eDP-1",
+      "description": "LG Display 0x067E",
+      "make": "LG Display",
+      "model": "0x067E",
+      "enabled": true,
+      "mode": "1920x1080@165.00Hz",
+      "width": 1920,
+      "height": 1080,
+      "refresh": 165.004,
+      "x": 4340,
+      "y": 368,
+      "scale": 1.25,
+      "transform": 0,
+      "bitdepth": 8,
+      "cm": "srgb",
+      "sdr_brightness": 1,
+      "sdr_saturation": 1,
+      "sdr_min_luminance": 0.2,
+      "sdr_max_luminance": 80,
+      "min_luminance": 0
+    },
+    {
+      "key": "lg electronics|e2011|serialnumber",
+      "match_key": "lg electronics|e2011|serialnumber",
+      "name": "HDMI-A-1",
+      "description": "LG Electronics E2011 SerialNumber",
+      "make": "LG Electronics",
+      "model": "E2011",
+      "enabled": true,
+      "mode": "1600x900@60.00Hz",
+      "width": 1600,
+      "height": 900,
+      "refresh": 60.0,
+      "x": 0,
+      "y": 0,
+      "scale": 1.0,
+      "transform": 1,
+      "bitdepth": 8,
+      "cm": "srgb",
+      "sdr_brightness": 1,
+      "sdr_saturation": 1,
+      "sdr_min_luminance": 0.2,
+      "sdr_max_luminance": 80,
+      "min_luminance": 0
+    }
+  ],
+  "workspaces": {
+    "enabled": true,
+    "strategy": "manual",
+    "max_workspaces": 15,
+    "group_size": 5,
+    "monitor_order": [
+      "asustek computer inc|vg34wqml5a|w2lmdw002227",
+      "lg display|0x067e",
+      "lg electronics|e2011|serialnumber"
+    ],
+    "rules": [
+      {
+        "workspace": "1",
+        "output_key": "asustek computer inc|vg34wqml5a|w2lmdw002227",
+        "output_name": "DP-1",
+        "default": true
+      },
+      {
+        "workspace": "2",
+        "output_key": "asustek computer inc|vg34wqml5a|w2lmdw002227",
+        "output_name": "DP-1"
+      },
+      {
+        "workspace": "3",
+        "output_key": "asustek computer inc|vg34wqml5a|w2lmdw002227",
+        "output_name": "DP-1"
+      },
+      {
+        "workspace": "4",
+        "output_key": "asustek computer inc|vg34wqml5a|w2lmdw002227",
+        "output_name": "DP-1"
+      },
+      {
+        "workspace": "5",
+        "output_key": "asustek computer inc|vg34wqml5a|w2lmdw002227",
+        "output_name": "DP-1"
+      },
+      {
+        "workspace": "6",
+        "output_key": "lg display|0x067e",
+        "output_name": "eDP-1",
+        "default": true
+      },
+      {
+        "workspace": "7",
+        "output_key": "lg display|0x067e",
+        "output_name": "eDP-1"
+      },
+      {
+        "workspace": "8",
+        "output_key": "lg display|0x067e",
+        "output_name": "eDP-1"
+      },
+      {
+        "workspace": "9",
+        "output_key": "lg display|0x067e",
+        "output_name": "eDP-1"
+      },
+      {
+        "workspace": "10",
+        "output_key": "lg display|0x067e",
+        "output_name": "eDP-1"
+      },
+      {
+        "workspace": "11",
+        "output_key": "lg electronics|e2011|serialnumber",
+        "output_name": "HDMI-A-1",
+        "default": true
+      },
+      {
+        "workspace": "12",
+        "output_key": "lg electronics|e2011|serialnumber",
+        "output_name": "HDMI-A-1"
+      },
+      {
+        "workspace": "13",
+        "output_key": "lg electronics|e2011|serialnumber",
+        "output_name": "HDMI-A-1"
+      },
+      {
+        "workspace": "14",
+        "output_key": "lg electronics|e2011|serialnumber",
+        "output_name": "HDMI-A-1"
+      },
+      {
+        "workspace": "15",
+        "output_key": "lg electronics|e2011|serialnumber",
+        "output_name": "HDMI-A-1"
+      }
+    ]
+  }
+}

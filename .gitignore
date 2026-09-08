@@ -3,3 +3,7 @@
 *.bak.*
 *.orig
 __pycache__/
+
+# Gerado pelo daemon do hyprmoncfg a cada troca de perfil -- artefato, nao fonte.
+# A fonte de verdade sao os perfis em user/.config/hyprmoncfg/profiles/.
+user/.config/hypr/hyprmoncfg-monitors.lua
