@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "kevin.hub",
+  "name": "Hub",
+  "version": "1.0.0",
+  "author": "Kevin",
+  "description": "Date/time label on the bar, with a tabbed panel holding calendar and media",
+  "kinds": [
+    "service",
+    "bar-widget"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "service": "Service.qml",
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Hub",
+    "description": "Clock label with a tabbed panel: calendar, media",
+    "category": "Time",
+    "allowMultiple": false
+  }
+}

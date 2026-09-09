@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "kevin.sysmon",
+  "name": "System Monitor",
+  "version": "1.0.0",
+  "author": "Kevin",
+  "description": "CPU, memory, GPU and disk usage in a bar panel",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "System Monitor",
+    "description": "CPU, memory, GPU and disk usage",
+    "category": "System",
+    "allowMultiple": false
+  }
+}
