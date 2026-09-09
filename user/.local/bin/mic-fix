@@ -1,0 +1,33 @@
+#!/bin/bash
+# Devolve o microfone interno como fonte padrao e o desmuta.
+#
+# POR QUE EXISTE: o snd_aloop (Loopback) criado pelo DroidCam
+# (/etc/modules-load.d/droidcam.conf) nasce com priority.session = 2009, acima
+# dos mics reais (2000). Sempre que a escolha explicita se perde -- por exemplo
+# depois de usar o DroidCam -- o WirePlumber elege o Loopback, que nao capta
+# nada, e o microfone "para de funcionar".
+#
+# Tentei rebaixar essa prioridade por monitor.alsa.rules em 2026-09-08, casando
+# por node.name, alsa.driver_name e object.path. NENHUMA pega: este no vem pela
+# camada ACP (api.alsa.use-acp = true), que atribui priority.session DEPOIS das
+# regras. Se for tentar de novo, o caminho nao e esse.
+#
+# ARMADILHA: `pactl set-source-mute` mexe so no no, e o WirePlumber reaplica o
+# mute:true guardado em ~/.local/state/wireplumber/default-routes segundos
+# depois. Use `wpctl set-mute`, que propaga para a rota e persiste.
+set -u
+MIC=alsa_input.pci-0000_06_00.6.HiFi__Mic1__source
+
+pactl set-default-source "$MIC" 2>/dev/null || { echo "mic-fix: microfone interno nao encontrado" >&2; exit 1; }
+id=$(wpctl status 2>/dev/null | grep -i 'Digital Microphone' | grep -oE '[0-9]+\.' | head -1 | tr -d '.')
+[ -n "${id:-}" ] && wpctl set-mute "$id" 0 2>/dev/null
+wpctl set-volume "${id:-@DEFAULT_AUDIO_SOURCE@}" 0.8 2>/dev/null
+
+echo "padrao : $(pactl get-default-source)"
+pactl list sources 2>/dev/null | python3 -c '
+import sys,re
+for b in sys.stdin.read().split("Source #"):
+    if "Mic1__source" in b and "monitor" not in b:
+        for k in ("State","Mute","Volume"):
+            m=re.search(k+r": (.+)", b)
+            if m: print("%-7s %s" % (k+":", m.group(1)[:50]))'
