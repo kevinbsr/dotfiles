@@ -1,0 +1,80 @@
+#!/usr/bin/env python3
+"""Impoe uma ordem canonica aos widgets da barra do Omarchy.
+
+POR QUE EXISTE: o Omarchy nao tem configuracao de posicao padrao de insercao --
+`omarchy plugin enable` e `omarchy bar put` sem `--index`/`--before` sempre
+acrescentam no FIM da secao (PluginRegistry.qml:barTarget). Toda vez que um
+plugin novo entra, ou que uma atualizacao reintroduz um widget, ele cai no fim
+e a barra precisa ser reorganizada a mao.
+
+Este script guarda a ordem desejada em ~/.config/omarchy/bar-order.json e a
+reaplica. Widget que nao esteja na lista vai para o COMECO da secao, que e onde
+o Kevin quer ver o que chegou -- em vez de ter que cacar no fim.
+
+  bar-order salvar    grava a ordem atual como canonica
+  bar-order aplicar   reordena a barra conforme a ordem canonica
+  bar-order mostrar   exibe a ordem canonica e a atual
+"""
+import json, os, re, sys, shutil, datetime
+
+CFG = os.path.expanduser("~/.config/omarchy/shell.json")
+ORD = os.path.expanduser("~/.config/omarchy/bar-order.json")
+SECOES = ("left", "center", "right")
+
+
+def ler(p):
+    return json.loads(re.sub(r'^\s*//.*$', '', open(p).read(), flags=re.M))
+
+
+def layout(d):
+    return d.setdefault("bar", {}).setdefault("layout", {})
+
+
+def ids(d, sec):
+    return [w.get("id") for w in layout(d).get(sec, []) or [] if isinstance(w, dict)]
+
+
+def salvar():
+    d = ler(CFG)
+    json.dump({s: ids(d, s) for s in SECOES}, open(ORD, "w"), indent=2)
+    print("ordem gravada em", ORD)
+
+
+def aplicar():
+    if not os.path.exists(ORD):
+        sys.exit("sem ordem canonica; rode `bar-order salvar` primeiro")
+    canon = json.load(open(ORD))
+    d = ler(CFG)
+    shutil.copy2(CFG, CFG + ".bak.barorder." + datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
+    mudou = False
+    for sec in SECOES:
+        atuais = layout(d).get(sec, []) or []
+        porid = {w.get("id"): w for w in atuais if isinstance(w, dict)}
+        querido = [i for i in canon.get(sec, []) if i in porid]
+        # o que nao esta na ordem canonica vai para o COMECO, nao para o fim
+        novos = [i for i in porid if i not in set(querido)]
+        final = [porid[i] for i in novos + querido]
+        if [w.get("id") for w in final] != [w.get("id") for w in atuais]:
+            mudou = True
+            if novos:
+                print("  %-7s novos no comeco: %s" % (sec, ", ".join(novos)))
+        layout(d)[sec] = final
+    if not mudou:
+        print("ja esta na ordem canonica")
+        return
+    open(CFG, "w").write(json.dumps(d, indent=2) + "\n")
+    print("barra reordenada")
+
+
+def mostrar():
+    d = ler(CFG)
+    canon = json.load(open(ORD)) if os.path.exists(ORD) else {}
+    for sec in SECOES:
+        print("[%s]" % sec)
+        print("  canonica:", ", ".join(canon.get(sec, [])) or "(vazia)")
+        print("  atual   :", ", ".join(ids(d, sec)) or "(vazia)")
+
+
+{"salvar": salvar, "aplicar": aplicar, "mostrar": mostrar}.get(
+    sys.argv[1] if len(sys.argv) > 1 else "mostrar",
+    lambda: sys.exit("uso: bar-order {salvar|aplicar|mostrar}"))()

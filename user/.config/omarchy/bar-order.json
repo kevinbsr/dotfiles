@@ -1,0 +1,35 @@
+{
+  "left": [
+    "omarchy.menu",
+    "omarchy.workspaces",
+    "omarchy.spacer"
+  ],
+  "center": [
+    "omarchy.keyboard-layout",
+    "omarchy.system-update",
+    "omarchy.indicators",
+    "kevin.hub"
+  ],
+  "right": [
+    "omarchy.tray",
+    "rdf.notes",
+    "omarchy.agents",
+    "omarchy.tailscale",
+    "omarchy.microphone",
+    "kevin.monitor",
+    "kevin.camera",
+    "omarchy.bluetooth",
+    "omarchy.network",
+    "omarchy.audio",
+    "kevin.sysmon",
+    "omarchy.power",
+    "ucmz851.omascan",
+    "nosignal.quattrolitaire",
+    "io.github.kevinbsr.2fa-codes",
+    "io.github.cempack.songrec",
+    "io.github.dlpwaters.yt-downloader",
+    "dizziee.system-updates",
+    "crmne.hyprmoncfg",
+    "devbook.futbar"
+  ]
+}

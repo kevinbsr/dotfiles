@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "id": "kevin.tray",
+  "name": "Tray (fork)",
+  "version": "1.9.3-kevin.1",
+  "author": "Ty Richards",
+  "license": "MIT",
+  "description": "Fork de io.github.tyrichards.tray 1.9.3 (Ty Richards, MIT). Mantido localmente para consertar a gaveta que parou de expandir apos a reescrita das APIs de plugin do Omarchy em 2026-09-08.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Tray.qml"
+  },
+  "barWidget": {
+    "displayName": "Tray (fork)",
+    "description": "Status notifier items, plus any bar widgets you drop into it",
+    "category": "Status",
+    "aliases": [
+      "kevintray"
+    ],
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}
