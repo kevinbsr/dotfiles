@@ -173,3 +173,10 @@ end
 -- Fake fullscreen: faz o aplicativo achar que está em tela cheia sem mudar sua geometria no tiling.
 o.bind("SUPER + CTRL + SHIFT + F", "Fake full screen", hl.dsp.window.fullscreen_state({ internal = 0, client = 2 }))
 
+
+-- flea --default: begin. Written by `flea --default`; `flea --default off` removes the block whole.
+hl.unbind("SUPER + SHIFT + F")
+o.bind("SUPER + SHIFT + F", "File manager", { launch = 'flea --gui' })
+hl.unbind("SUPER + ALT + SHIFT + F")
+o.bind("SUPER + ALT + SHIFT + F", "File manager (cwd)", { launch = 'flea --gui "$(omarchy-cmd-terminal-cwd)"' })
+-- flea --default: end.

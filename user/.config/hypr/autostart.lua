@@ -12,7 +12,25 @@ o.launch_on_start("solaar --window=hide")
 o.launch_on_start("hyprsunset")
 
 -- Serviço do Nautilus, para abrir pastas sem esperar o app inteiro.
-o.exec_on_start('bash -c "sleep 5 && nautilus --gapplication-service"')
+-- Pre-aquecimento do Flea, que virou o gerenciador de arquivos padrao em
+-- 2026-09-08 (via `flea --default`). Substitui o servico do Nautilus, que
+-- ficava residente desde o login e agora seria peso morto.
+--
+-- POR QUE ISTO EXISTE, com numeros medidos: quente, Flea e Nautilus abrem
+-- igual (~48 ms). Frio, o Flea leva 2238 ms contra 713 ms do Nautilus -- e o
+-- Nautilus so ganhava porque o servico dele mantinha as bibliotecas em cache
+-- desde o login. Nao era o Flea ser lento, era ser frio.
+--
+-- Das 201 libs que o Flea mapeia, 189 ja estao quentes por causa do shell do
+-- Omarchy (tambem Quickshell). O que sobra e a pilha grafica da NVIDIA, que o
+-- carregador Vulkan enumera mesmo sem usar: libnvidia-glcore (39,8 MB),
+-- libvulkan_radeon (18,3 MB), libnvidia-glvkspirv (9,9 MB) e libGLX_nvidia.
+--
+-- Por isso aqui so LEMOS os arquivos para o cache de pagina, em vez de deixar
+-- processo rodando: cada `flea --gui` deixa um `flea --backend` orfao que nao
+-- e recolhido ao fechar a janela (bug do 0.1.3), entao um daemon residente
+-- somaria lixo em vez de resolver.
+o.exec_on_start('bash -c "sleep 8 && cat /usr/lib/libnvidia-glcore.so.* /usr/lib/libvulkan_radeon.so /usr/lib/libnvidia-glvkspirv.so.* /usr/lib/libGLX_nvidia.so.* /usr/bin/flea > /dev/null 2>&1"')
 
 -- Monitor de microfone (script pessoal em ~/.local/bin).
 -- omarchy-mic-monitor REMOVIDO em 2026-09-02: era codigo morto desde o Quattro.
