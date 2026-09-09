@@ -30,7 +30,12 @@ hl.config({
       clickfinger_behavior = true,
 
       -- Control the speed of your scrolling.
-      scroll_factor = 0.4,
+      -- 1.0 (o padrao do Hyprland), nao os 0.4 que o Omarchy usa
+      -- (/usr/share/omarchy/default/hypr/input.lua:67). O padrao do Hyprland e
+      -- 1.0, e mesmo ele ficou lento demais para o Kevin neste touchpad.
+      -- Lembrar que os multiplicadores por app abaixo se aplicam POR CIMA deste
+      -- valor: ghostty em 0.2 fica 5x mais lento que o resto.
+      scroll_factor = 1.0,
 
       -- Enable tap to click.
       tap_to_click = true,
@@ -56,3 +61,7 @@ hl.gesture({ fingers = 3, direction = "horizontal", action = "workspace" })
 -- por conta propria, dai o 0.2.
 o.window("(Alacritty|kitty|foot)", { scroll_touchpad = 1.5 })
 o.window("com.mitchellh.ghostty", { scroll_touchpad = 0.2 })
+-- Flea (gerenciador de arquivos padrao desde 2026-09-08): mesmo multiplicador
+-- dos terminais. Aplica-se POR CIMA do scroll_factor global acima, entao aqui
+-- o efetivo e 1.0 x 1.5 -- listas longas de arquivo pedem mais que o resto.
+o.window("com.thisisgm.flea", { scroll_touchpad = 1.5 })
