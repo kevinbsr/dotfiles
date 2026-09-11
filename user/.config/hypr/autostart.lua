@@ -11,29 +11,29 @@ o.launch_on_start("solaar --window=hide")
 -- execução, então ele precisa subir junto com a sessão.
 o.launch_on_start("hyprsunset")
 
--- O Flea virou o gerenciador de arquivos padrao em 2026-09-08 (via
--- `flea --default`), no lugar do servico do Nautilus, que ficava residente
--- desde o login.
+-- Flea became the default file manager on 2026-09-08 (via `flea --default`),
+-- replacing the Nautilus service that used to stay resident from login.
 --
--- AQUI EXISTIA um pre-aquecimento de page cache (um `cat` das libs de GL e do
--- binario do Flea, 8s apos o login). REMOVIDO em 2026-09-09 depois de medir
--- direito. As medicoes antigas que o justificavam estavam erradas: diziam
--- "quente ~48 ms", medindo o retorno do comando e nao a janela aparecer.
+-- A page-cache pre-warm USED TO LIVE HERE (a `cat` of the GL libraries and the
+-- Flea binary, 8s after login). Removed on 2026-09-09 after measuring it
+-- properly. The older numbers that justified it were wrong: they claimed
+-- "~48 ms warm", which is what you get timing the command's return rather than
+-- the window appearing.
 --
--- Medido do exec ate o evento `openwindow` do Hyprland:
---     Flea quente ................. ~700 ms
---     Flea frio, sem pre-aquecer .. 1077 ms
---     Flea frio, pre-aquecido ....   856 ms
---     Nautilus frio, sem residente   810 ms
+-- Measured from exec to Hyprland's `openwindow` event:
+--     Flea warm .................. ~700 ms
+--     Flea cold, no pre-warm ..... 1077 ms
+--     Flea cold, pre-warmed ......  856 ms
+--     Nautilus cold, nothing resident 810 ms
 --
--- Ou seja: o pre-aquecimento comprava 221 ms, UMA vez por boot, lendo 70 MB a
--- cada login. E o grosso do custo -- ~700 ms -- nao e paginacao, e a
--- inicializacao do proprio Flea, que cache nenhum resolve. Nao readicionar
--- sem medir de novo pelo openwindow.
+-- So the pre-warm bought 221 ms, ONCE per boot, at the cost of reading 70 MB on
+-- every login. And the bulk of the cost -- ~700 ms -- is not paging, it is
+-- Flea's own startup, which no cache fixes. Do not add it back without
+-- measuring through openwindow again.
 --
--- (O Flea tambem deixa 2 processos orfaos por abertura, um `qs` e um
--- `flea --backend`, e NAO os reaproveita: a 3a abertura custa o mesmo que a
--- 1a. Reportado ao projeto.)
+-- (Flea also leaks 2 processes per launch, a `qs` and a `flea --backend`, and
+-- does NOT reuse them: the 3rd launch costs the same as the 1st. Reported
+-- upstream as thisisgm/flea#102.)
 
 -- Monitor de microfone (script pessoal em ~/.local/bin).
 -- omarchy-mic-monitor REMOVIDO em 2026-09-02: era codigo morto desde o Quattro.
