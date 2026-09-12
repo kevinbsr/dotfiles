@@ -1,0 +1,21 @@
+[Unit]
+Description=Bring the DisplayPort link back after a resume
+After=suspend.target
+After=hybrid-sleep.target
+
+# This is a SYSTEM unit on purpose. The user manager has no suspend.target, so
+# a ~/.config/systemd/user unit wired to it never fires -- which is exactly how
+# the first version of this failed silently through several real suspends.
+# ryzenadj-resume.service works for the same reason: it lives here.
+
+[Service]
+Type=oneshot
+User=kevin
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+# Hyprland needs a moment to have its outputs back before a modeset lands.
+ExecStartPre=/bin/sleep 8
+ExecStart=/home/kevin/.local/bin/dp-wake-recover
+
+[Install]
+WantedBy=suspend.target
+WantedBy=hybrid-sleep.target

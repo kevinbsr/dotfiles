@@ -78,6 +78,35 @@ systemctl daemon-reload
 systemctl enable --now ryzenadj.service
 systemctl enable ryzenadj-resume.service
 
+# Deploy CPU frequency cap
+# Caps scaling_max_freq below the boost ceiling. The top few hundred MHz cost
+# far more heat than they return in throughput, and heat is what the fan
+# answers. Re-applied on resume because the governor restores its own maximum.
+echo "-> [SYSTEM] Provisioning CPU frequency cap..."
+cp "$REPO_DIR/system/etc/systemd/system/cpu-max-freq.service" /etc/systemd/system/
+chown root:root /etc/systemd/system/cpu-max-freq.service
+chmod 644 /etc/systemd/system/cpu-max-freq.service
+
+systemctl daemon-reload
+systemctl enable --now cpu-max-freq.service
+
+# Deploy DisplayPort wake recovery
+# The link to the ASUS on DP-1 can come back dead from suspend with nothing
+# reporting it. MUST be a system unit: the user manager has no suspend.target,
+# so a user unit wanting it never fires.
+echo "-> [SYSTEM] Provisioning DisplayPort wake recovery..."
+cp "$REPO_DIR/system/etc/systemd/system/dp-wake-recover.service" /etc/systemd/system/
+chown root:root /etc/systemd/system/dp-wake-recover.service
+chmod 644 /etc/systemd/system/dp-wake-recover.service
+
+systemctl daemon-reload
+systemctl enable dp-wake-recover.service
+
+# Same recovery for the DPMS path: Hyprland emits no DPMS event, so the user
+# unit polls for it.
+sudo -u "$REAL_USER" XDG_RUNTIME_DIR="/run/user/$USER_UID" \
+  systemctl --user enable --now dp-dpms-watch.service || true
+
 # Deploy custom binaries
 echo "-> [SYSTEM] Provisioning custom binaries..."
 mkdir -p /usr/local/bin

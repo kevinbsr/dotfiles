@@ -1,0 +1,27 @@
+#!/bin/bash
+# Watch for the displays coming back on and re-arm the DisplayPort link.
+#
+# The link dies on a plain screen blank, not only on suspend -- a lock with no
+# suspend is enough. The system unit on suspend.target does not cover that, so
+# this covers the DPMS path.
+#
+# WHY POLLING: Hyprland emits no dpms event on its socket. A listener ran
+# through a full blank/wake cycle and logged nothing, which is how the first
+# version of this failed. Nothing else reports the state either, so the honest
+# option left is to ask. Every 5s is cheap enough against a monitor that
+# otherwise stays dark until the cable is pulled.
+
+log() { printf 'dp-dpms-watch: %s\n' "$1"; }
+
+anterior=""
+while true; do
+  atual=$(hyprctl monitors -j 2>/dev/null | jq -r '.[] | select(.name=="DP-1") | .dpmsStatus' 2>/dev/null)
+  if [[ -n $atual && -n $anterior && $anterior == "false" && $atual == "true" ]]; then
+    log "displays came back; re-arming DP-1"
+    # Let Hyprland settle before a modeset lands on it.
+    sleep 4
+    "$HOME/.local/bin/dp-wake-recover"
+  fi
+  [[ -n $atual ]] && anterior="$atual"
+  sleep 5
+done

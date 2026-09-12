@@ -22,14 +22,42 @@ RAW_OVERRIDE_ON = 86
 RAW_OVERRIDE_OFF = 80
 
 LEVELS = [
-    (88, 83, 0xff), # Level 7: 100% - Critical (G-Mode)
-    (81, 75, 0xb0), # Level 6: ~69% - Heavy Load
-    (74, 68, 0x80), # Level 5: 50%  - Active Usage
-    (67, 61, 0x50), # Level 4: ~31% - Warmer
-    (60, 54, 0x2e), # Level 3: ~18% - Transition
-    (53, 47, 0x18), # Level 2: ~9%  - Light Work
-    (45, 39, 0x0d), # Level 1: ~5%  - Proactive
-    (0,  0,  0x00), # Level 0: 0%   - Cold
+    # (turn_on_C, turn_off_C, boost)
+    #
+    # Boost is not linear in RPM. Measured on this machine with the daemon
+    # stopped, 14s of settle per step:
+    #
+    #   0x00 = 0      0x2e = 2000   0x50 = 3700   0x80 = 4800   0xb0 = 5700
+    #   0x0d = 1200   0x40 = 3400   0x60 = 4000   0xa0 = 5500   0xff = 5700
+    #
+    # Two things follow. The response is steepest between 0x2e and 0x40 -- 18
+    # boost steps buy 1400 RPM there, against 19 RPM per step higher up -- so
+    # that is the only stretch where fine control actually exists. And the top
+    # saturates: 0xb0 and 0xff are the same 5700 RPM, so the critical level
+    # buys nothing over the one below it. It is kept for G-Mode's sake.
+    #
+    # With tctl-temp capped at 72C the CPU now lives between roughly 58 and
+    # 72C. The old curve crossed that whole band in one 1700 RPM jump, from
+    # 0x2e to 0x50, which is why the machine was either quiet or plainly
+    # audible with nothing in between. The band below is split into five steps
+    # of about 400 RPM each instead.
+    #
+    # Hysteresis is 3C here rather than the 6C used above: each turn-off sits
+    # just above the next level's turn-on, so a falling temperature steps down
+    # exactly one level instead of skipping. Narrower bands mean more
+    # crossings, and every boost change restarts the EC ramp -- see the note
+    # further down about never re-applying an unchanged value.
+    (88, 83, 0xff), # Critical / G-Mode  -- 5700 RPM (same as 0xb0)
+    (81, 75, 0xb0), # Heavy load         -- 5700 RPM
+    (74, 69, 0x80), # Above the thermal cap: only reachable if tctl is raised
+    (72, 69, 0x4a), # ~3600 RPM
+    (68, 65, 0x40), # 3400 RPM  <- where a full load sits with tctl=72
+    (64, 61, 0x3a), # ~2900 RPM
+    (60, 57, 0x34), # ~2500 RPM
+    (56, 53, 0x2e), # 2000 RPM
+    (52, 47, 0x18), # Light work
+    (45, 39, 0x0d), # Proactive
+    (0,  0,  0x00), # Cold
 ]
 
 def acpi_call(cmd):

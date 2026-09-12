@@ -87,10 +87,31 @@ local function dp1_max_hz()
   return nil
 end
 
-local dp1_mode, dp1_depth = "3440x1440@180", 8
+-- 120 Hz a 10 bits DE PROPOSITO, e nao os 240 que o painel aceita.
+--
+-- O DP 1.4 entrega ~25,9 Gbps uteis. A 3440x1440:
+--     240 Hz / 10 bits = 37,4 Gbps  -> so passa com DSC
+--     180 Hz / 10 bits = 28,1 Gbps  -> so passa com DSC
+--     180 Hz /  8 bits = 22,5 Gbps  -> cabe
+--     120 Hz / 10 bits = 18,7 Gbps  -> cabe, com 28% de folga
+--
+-- E o DSC e a causa do monitor nao voltar depois que a tela apaga ou a maquina
+-- suspende: a negociacao da compressao nao se refaz sozinha, o driver AMD
+-- registra "DMCUB error", e o enlace fica morto com o Hyprland reportando
+-- sucesso. Um Dell 1080p60 na mesma maquina nunca teve o problema, porque
+-- nunca precisou comprimir nada.
+--
+-- 165 Hz fecharia a conta (25,7 Gbps) mas NAO EXISTE: o monitor so anuncia
+-- 59,97 / 119,99 / 179,98 / 240 nesta resolucao. Conferir com
+-- `hyprctl monitors all` antes de propor qualquer modo.
+--
+-- A guarda de EDID abaixo continua existindo para nunca gravar um modo que o
+-- monitor nao anuncia -- foi forcar 240 sem conferir que travou a maquina em
+-- setembro. Ela agora so confirma que o painel e o de alta taxa.
+local dp1_mode, dp1_depth = "3440x1440@120", 10
 local max_hz = dp1_max_hz()
-if max_hz and max_hz >= 240 then
-  dp1_mode, dp1_depth = "3440x1440@240", 10
+if not (max_hz and max_hz >= 120) then
+  dp1_mode, dp1_depth = "3440x1440@60", 8
 end
 
 -- cm = "srgb" e explicito de proposito. E o padrao do Hyprland, mas o clamp

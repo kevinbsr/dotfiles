@@ -1,0 +1,35 @@
+[Unit]
+Description=Cap CPU max frequency below the unsustainable boost ceiling
+After=multi-user.target
+After=suspend.target
+After=hibernate.target
+After=hybrid-sleep.target
+
+# The 5800H advertises a 4.46 GHz boost it cannot hold on this chassis. Left
+# uncapped, it spends power budget chasing that ceiling and throttles back,
+# which costs sustained throughput rather than buying it.
+#
+# Measured on this machine (7z b, 16 threads, 3-minute cooldowns, order
+# alternated between rounds, with tctl-temp=72 already in force):
+#
+#   4.46 GHz : 57292 then 44050 MIPS
+#   4.00 GHz : 59937 then 51443 MIPS
+#
+# 4.0 GHz won all four rounds, including two earlier rounds run before the
+# thermal cap existed. The magnitude is noisy (5-17%); the direction is not.
+# Fan speed was 3300 RPM in every run -- tctl-temp already bounds the acoustics,
+# so this cap is throughput only and costs nothing thermally.
+#
+# A profile switch does not undo this: power-profiles-daemon lowers the ceiling
+# for power-saver and restores whatever was set here on the way back to
+# balanced. Only a boot or a resume resets it, hence both targets above.
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'for c in /sys/devices/system/cpu/cpu[0-9]*/cpufreq/scaling_max_freq; do echo 4000000 > "$c"; done'
+
+[Install]
+WantedBy=multi-user.target
+WantedBy=suspend.target
+WantedBy=hibernate.target
+WantedBy=hybrid-sleep.target

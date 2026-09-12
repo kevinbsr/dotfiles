@@ -1,0 +1,80 @@
+#!/bin/bash
+# Bring the DisplayPort link back after a resume.
+#
+# The ASUS on DP-1 hangs off the NVIDIA card while the AMD side composites.
+# Coming back from suspend the AMD display controller sometimes faults --
+#     amdgpu ... *ERROR* dc_dmub_srv_log_diagnostic_data: DMCUB error
+# -- and the link never re-establishes. Nothing reports it: the connector still
+# reads "connected" and Hyprland still lists the mode as active while the
+# monitor shows nothing.
+#
+# WHAT ACTUALLY REVIVES IT: a mode cycle, low then high. Disabling and
+# re-enabling the output at the same mode is NOT enough -- with DSC the link
+# does not renegotiate on its own. DPMS off/on does not do it either. This was
+# established in ~/.local/bin/dgpu-outputs back in September and rediscovered
+# the hard way; do not "simplify" this back into a disable/enable.
+#
+# AND HYPRLAND CANNOT BE TRUSTED to report it: it returns success over a dead
+# link. The only honest check is asking the monitor itself over DDC, which is
+# why this verifies with `ddcutil getvcp AE` and retries once.
+
+log() { printf 'dp-wake-recover: %s\n' "$1"; }
+
+# A systemd unit does not inherit the session environment, so recover the
+# Hyprland instance signature from the socket that is actually there.
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+if [[ -z ${HYPRLAND_INSTANCE_SIGNATURE:-} ]]; then
+  sock=$(ls -t "$XDG_RUNTIME_DIR"/hypr/*/.socket.sock 2>/dev/null | head -1)
+  [[ -n $sock ]] || { log "no Hyprland socket; giving up"; exit 1; }
+  HYPRLAND_INSTANCE_SIGNATURE=$(basename "$(dirname "$sock")")
+  export HYPRLAND_INSTANCE_SIGNATURE
+fi
+
+[[ $(cat /sys/class/drm/card0-DP-1/status 2>/dev/null) == connected ]] || {
+  log "DP-1 not connected; nothing to do"; exit 0; }
+
+BAIXO='hl.monitor({ output = "DP-1", mode = "3440x1440@60", position = "900x80", scale = 1.25, bitdepth = 8, cm = "srgb" })'
+ALTO='hl.monitor({ output = "DP-1", mode = "3440x1440@120", position = "900x80", scale = 1.25, bitdepth = 10, cm = "srgb" })'
+
+# Healthy means the monitor reports the rate Hyprland thinks it is driving --
+# NOT merely a non-zero one. A dying link passes through intermediate rates: a
+# probe that accepted "anything but zero" read 60 Hz on a 240 Hz output, called
+# it healthy, did nothing, and left the screen dark. Disagreement between the
+# two sides is the whole signal.
+monitor_responde() {
+  local d f esperado
+  esperado=$(hyprctl monitors -j 2>/dev/null | jq -r '.[] | select(.name=="DP-1") | .refreshRate | round')
+  d=$(ddcutil detect --brief 2>/dev/null | awk '/^Display /{x=$2} /VG34WQML5A/{print x; exit}')
+  [[ -n $d ]] || { log "monitor not on DDC"; return 1; }
+  f=$(ddcutil -d "$d" getvcp AE 2>/dev/null | sed 's/.*): //')
+  local hz=${f%% *}
+  log "monitor reports: ${f:-<no answer>} (Hyprland drives ${esperado:-?} Hz)"
+  [[ -n ${hz:-} && -n ${esperado:-} ]] || return 1
+  # 10 Hz of slack: the monitor rounds, and 239 vs 240 is not a fault.
+  awk -v a="$hz" -v b="$esperado" 'BEGIN{ exit !(a-b<10 && b-a<10) }'
+}
+
+ciclo() {
+  hyprctl eval "$BAIXO" >/dev/null 2>&1; sleep 5
+  hyprctl eval "$ALTO"  >/dev/null 2>&1; sleep 5
+}
+
+# Probe before acting. The mode cycle is two modesets, so the screen blinks
+# twice every time it runs -- and most wakes do not need it. Asking the monitor
+# first over DDC costs about a second and leaves an already-healthy link alone.
+# A dead link still answers DDC, it just reports a rate near zero, which is what
+# makes this a usable probe rather than a guess.
+if monitor_responde; then
+  log "link already up; nothing to do"
+  exit 0
+fi
+
+log "link is dead; cycling the mode"
+ciclo
+if monitor_responde; then
+  log "link is up"
+else
+  log "link still dead, cycling once more"
+  ciclo
+  monitor_responde && log "link is up" || log "FAILED: DP-1 needs a physical replug"
+fi

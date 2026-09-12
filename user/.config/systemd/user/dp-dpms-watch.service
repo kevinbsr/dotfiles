@@ -1,0 +1,13 @@
+[Unit]
+Description=Re-arm the DisplayPort link when the displays come back on
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/dp-dpms-watch
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target

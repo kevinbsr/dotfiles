@@ -7,6 +7,7 @@ After=hybrid-sleep.target
 [Service]
 Type=oneshot
 ExecStart=/usr/bin/ryzenadj \
+  --tctl-temp=72 \
   --fast-limit=54000 \
   --slow-limit=45000 \
   --slow-time=30 \

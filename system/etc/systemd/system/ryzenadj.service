@@ -4,9 +4,27 @@ After=multi-user.target
 
 [Service]
 Type=oneshot
-# Alienware BIOS enforces STAPM >= 54W and tctl-temp >= 100C, so those are omitted.
-# PPT SLOW (slow-limit) is the effective sustained power cap — most impactful for temps.
+# STAPM stays untouched: the BIOS enforces STAPM >= 54W and rejects anything lower.
+#
+# tctl-temp WAS omitted here for the same reason -- the BIOS used to reject any
+# limit below 100C. That is no longer true as of 2026-09-11: 72C applies, sticks,
+# and survives without periodic re-application. Re-verify after a BIOS update
+# before assuming either way.
+#
+# Why 72C, measured on this machine with 3-minute cooldowns between runs:
+#
+#   tctl 92C (stock) : ~57300 MIPS | 75-76C | 5240-5410 RPM | 11% run-to-run spread
+#   tctl 72C         : ~50500 MIPS | 69C    | 3300 RPM      | <1% spread
+#
+# The cost is 12% sustained throughput. The gain is that 3300 RPM under a full
+# 16-thread load is the same speed the fan runs at idle, so the machine never
+# gets louder than it already is, and the thermal ceiling makes throughput
+# repeatable instead of swinging with heat soak.
+#
+# PPT SLOW (slow-limit) is the sustained power cap. Lowering it was measured and
+# rejected: 28W bought a similar fan speed for a 41% throughput loss.
 ExecStart=/usr/bin/ryzenadj \
+  --tctl-temp=72 \
   --fast-limit=54000 \
   --slow-limit=45000 \
   --slow-time=30 \

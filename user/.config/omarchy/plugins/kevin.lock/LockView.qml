@@ -76,11 +76,43 @@ Item {
 
   onPasswordTextChanged: syncPasswordText()
   onInputEnabledChanged: {
-    if (inputEnabled) Qt.callLater(forcePasswordFocus)
+    if (inputEnabled) root.claimFocus()
+  }
+  // The displays are usually already blanked when the lock appears, and the
+  // surface cannot take keyboard focus until they come back. A single
+  // Qt.callLater at creation lands too early, is silently dropped, and nothing
+  // retries -- which is why the keyboard used to stay dead until a mouse move
+  // dragged focus in through the wake path.
+  onDisplaysBlankChanged: {
+    if (!displaysBlank && inputEnabled) root.claimFocus()
   }
   Component.onCompleted: {
     syncPasswordText()
-    if (inputEnabled) Qt.callLater(forcePasswordFocus)
+    if (inputEnabled) root.claimFocus()
+  }
+
+  // Ask a few times over the first second rather than once. Claiming focus that
+  // is already held is free, so retrying costs nothing and covers whichever
+  // moment the surface actually becomes focusable.
+  function claimFocus() {
+    focusRetry.tentativas = 0
+    focusRetry.restart()
+    Qt.callLater(forcePasswordFocus)
+  }
+
+  Timer {
+    id: focusRetry
+    property int tentativas: 0
+    interval: 120
+    repeat: true
+    onTriggered: {
+      tentativas += 1
+      if (!root.inputEnabled || passwordInput.activeFocus || tentativas > 8) {
+        stop()
+        return
+      }
+      root.forcePasswordFocus()
+    }
   }
 
   // Measures the masked password at full size; passwordDotScale compares this
