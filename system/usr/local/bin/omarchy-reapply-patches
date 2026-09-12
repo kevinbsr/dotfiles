@@ -1,0 +1,58 @@
+#!/bin/bash
+# Reapply local patches to the installed omarchy after the package is upgraded.
+#
+# WHY THIS EXISTS: omarchy-dev tracks the quattro branch, so every upgrade
+# overwrites the installed tree wholesale. A patch still waiting on an upstream
+# review disappears with it -- silently. The menu multi-select vanished on
+# 2026-09-11 and nothing reported it; the feature was simply gone.
+#
+# This is a stopgap for patches that have an open pull request. Once the PR is
+# merged the patch stops applying, this script says so and leaves the files
+# alone, and the .patch can be deleted.
+#
+# Driven by /etc/pacman.d/hooks/95-omarchy-reapply-patches.hook.
+#
+# PATHS ARE ABSOLUTE, ROOTED AT /, ON PURPOSE. The obvious target would be
+# /usr/share/omarchy, but the executables there are symlinks into /usr/bin, and
+# the menu invokes them through PATH -- so patching that directory changes
+# nothing that runs. `patch --follow-symlinks` is worse than useless here: it
+# replaces the symlink with a regular file and leaves the real binary untouched.
+# So each patch carries its own real path (usr/bin/..., usr/share/omarchy/...)
+# and is applied from /.
+
+set -uo pipefail
+
+PATCH_DIR=/usr/local/share/omarchy-patches
+ROOT=/
+
+log() { printf 'omarchy-reapply-patches: %s\n' "$1"; }
+
+[[ -d $PATCH_DIR ]] || exit 0
+
+shopt -s nullglob
+patches=("$PATCH_DIR"/*.patch)
+((${#patches[@]})) || exit 0
+
+for p in "${patches[@]}"; do
+  name=$(basename "$p" .patch)
+
+  # --forward makes an already-applied patch a no-op rather than an offer to
+  # revert it, and the dry run keeps a patch that no longer fits from leaving
+  # half-written files behind. Both matter: this runs unattended inside a pacman
+  # transaction, where a half-patched menu is a broken desktop.
+  if ! patch -p1 -d "$ROOT" --forward --dry-run --silent <"$p" >/dev/null 2>&1; then
+    if patch -p1 -d "$ROOT" --reverse --dry-run --silent <"$p" >/dev/null 2>&1; then
+      log "$name: already applied"
+    else
+      log "$name: DOES NOT APPLY -- upstream moved, or the PR was merged."
+      log "$name: check it, then delete $p once it is no longer needed."
+    fi
+    continue
+  fi
+
+  if patch -p1 -d "$ROOT" --forward --silent <"$p" >/dev/null 2>&1; then
+    log "$name: reapplied"
+  else
+    log "$name: FAILED after a clean dry run -- the tree may be inconsistent"
+  fi
+done

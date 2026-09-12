@@ -1,0 +1,20 @@
+# Reapply local patches after omarchy overwrites /usr/share/omarchy.
+#
+# Targets both package names: omarchy-dev follows the quattro branch, omarchy is
+# the stable one. Whichever is installed, the upgrade replaces the tree and any
+# patch waiting on an open PR goes with it.
+#
+# PostTransaction, because the files have to be on disk before they can be
+# patched.
+
+[Trigger]
+Type = Package
+Operation = Install
+Operation = Upgrade
+Target = omarchy
+Target = omarchy-dev
+
+[Action]
+Description = Reapplying local omarchy patches...
+When = PostTransaction
+Exec = /usr/local/bin/omarchy-reapply-patches

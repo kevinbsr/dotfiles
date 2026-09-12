@@ -114,6 +114,24 @@ cp "$REPO_DIR/system/usr/local/bin/omarchy-power-manager" /usr/local/bin/
 chown root:root /usr/local/bin/omarchy-power-manager
 chmod 755 /usr/local/bin/omarchy-power-manager
 
+# Deploy the omarchy patch reapplier
+# omarchy-dev follows the quattro branch, so every upgrade replaces the whole
+# installed tree and takes any locally applied patch with it -- without saying
+# so. This pacman hook puts them back after the transaction.
+echo "-> [SYSTEM] Provisioning omarchy patch reapplier..."
+install -Dm755 "$REPO_DIR/system/usr/local/bin/omarchy-reapply-patches" \
+  /usr/local/bin/omarchy-reapply-patches
+install -Dm644 "$REPO_DIR/system/etc/pacman.d/hooks/95-omarchy-reapply-patches.hook" \
+  /etc/pacman.d/hooks/95-omarchy-reapply-patches.hook
+
+mkdir -p /usr/local/share/omarchy-patches
+for patch_file in "$REPO_DIR"/system/usr/local/share/omarchy-patches/*.patch; do
+  [[ -e $patch_file ]] || continue
+  install -Dm644 "$patch_file" "/usr/local/share/omarchy-patches/$(basename "$patch_file")"
+done
+
+/usr/local/bin/omarchy-reapply-patches || true
+
 # Deploy udev rules
 mkdir -p /etc/udev/rules.d
 echo "-> [SYSTEM] Provisioning kernel rules (udev)..."

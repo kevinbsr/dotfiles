@@ -1,0 +1,399 @@
+diff --git a/usr/bin/omarchy-menu-plugin b/usr/bin/omarchy-menu-plugin
+index 35ce5a36..a824d088 100755
+--- a/usr/bin/omarchy-menu-plugin
++++ b/usr/bin/omarchy-menu-plugin
+@@ -1,6 +1,6 @@
+ #!/bin/bash
+ 
+-# omarchy:summary=Pick a shell plugin to enable, disable, clone, or remove
++# omarchy:summary=Pick shell plugins to enable, disable, clone, or remove
+ # omarchy:group=menu
+ # omarchy:name=plugin
+ # omarchy:args=<enable|disable|clone|remove>
+@@ -9,11 +9,14 @@ set -euo pipefail
+ 
+ PLUGIN_ICON=$'\U000f0431'
+ 
++# Enabling, disabling and removing are all things people do to a handful of
++# plugins in one sitting, so those pick many. Cloning drops into an editor on
++# the way out and can only sensibly do one.
+ case "${1:-}" in
+-  enable) filter='(.enabled | not)' ;;
+-  disable) filter='.canDisable and .enabled' ;;
+-  clone) filter='.firstParty and (.id as $id | ($plugins | map(.clonedFrom // "") | index($id)) == null)' ;;
+-  remove) filter='(.firstParty | not)' ;;
++  enable) filter='(.enabled | not)'; multi=1 ;;
++  disable) filter='.canDisable and .enabled'; multi=1 ;;
++  clone) filter='.firstParty and (.id as $id | ($plugins | map(.clonedFrom // "") | index($id)) == null)'; multi=0 ;;
++  remove) filter='(.firstParty | not)'; multi=1 ;;
+   *)
+     echo "Usage: omarchy-menu-plugin <enable|disable|clone|remove>" >&2
+     exit 1
+@@ -30,17 +33,40 @@ rows=$(jq -r --arg icon "$PLUGIN_ICON" \
+    | \$icon + \"\\t\" + .name + \"\\t\" + .id" <<<"$plugins")
+ [[ -n $rows ]] || { omarchy-notification-send "No plugin to ${1}"; exit 0; }
+ 
+-selection=$(omarchy-menu-select "${1^} plugin" <<<"$rows") || exit 0
+-[[ -n $selection ]] || exit 0
++prompt="${1^} plugin"
++menu_args=()
++if (( multi )); then
++  prompt+="s"
++  menu_args=(-- --multi)
++fi
+ 
+-id=$(cut -f2 <<<"$selection")
+-[[ -n $id ]] || exit 1
++# A cancelled menu prints nothing, so an empty list is the cancel signal.
++mapfile -t selections < <(omarchy-menu-select "$prompt" "${menu_args[@]}" <<<"$rows")
++(( ${#selections[@]} )) || exit 0
++
++ids=()
++for selection in "${selections[@]}"; do
++  id=$(cut -f2 <<<"$selection")
++  [[ -n $id ]] && ids+=("$id")
++done
++(( ${#ids[@]} )) || exit 1
+ 
+ if [[ $1 == "clone" ]]; then
+   omarchy-launch-floating-terminal-with-presentation \
+-    "omarchy-plugin-clone $(printf '%q' "$id") --edit"
++    "omarchy-plugin-clone $(printf '%q' "${ids[0]}") --edit"
+ elif [[ $1 == "remove" ]]; then
+-  omarchy-launch-floating-terminal-with-presentation "omarchy-plugin-remove $(printf '%q' "$id")"
++  # One terminal for the batch, one confirmation per plugin inside it: a run
++  # of removals is still a run of separate destructive answers.
++  command=""
++  for id in "${ids[@]}"; do
++    command+="${command:+; }omarchy-plugin-remove $(printf '%q' "$id")"
++  done
++  omarchy-launch-floating-terminal-with-presentation "$command"
+ else
+-  "omarchy-plugin-$1" "$id"
++  failed=()
++  for id in "${ids[@]}"; do
++    "omarchy-plugin-$1" "$id" || failed+=("$id")
++  done
++  (( ${#failed[@]} == 0 )) ||
++    omarchy-notification-send "Could not ${1} ${#failed[@]} plugin(s)" "${failed[*]}"
+ fi
+diff --git a/usr/bin/omarchy-menu-select b/usr/bin/omarchy-menu-select
+index 1404665f..09c892d8 100755
+--- a/usr/bin/omarchy-menu-select
++++ b/usr/bin/omarchy-menu-select
+@@ -4,13 +4,18 @@
+ # omarchy:group=menu
+ # omarchy:name=select
+ # omarchy:args=prompt [option...] [-- menu args...]
+-# omarchy:examples=omarchy menu select Format jpg png|omarchy-menu-select Resolution 4k 1080p 720p -- --width 400
++# omarchy:examples=omarchy menu select Format jpg png|omarchy-menu-select Resolution 4k 1080p 720p -- --width 400|omarchy-menu-select Plugins -- --multi
+ 
+ # An option may lead with an icon, as "<glyph><TAB><label>", and may trail a
+ # subtext shown under the label, as "<glyph><TAB><label><TAB><subtext>". The
+ # menu shows the glyph but never returns it. A plain option returns the label
+ # alone; an option with a subtext returns "<label><TAB><subtext>", so callers
+ # with same-named rows get the subtext back as the stable key.
++#
++# With `-- --multi` the menu ticks rows with Tab and confirms with Enter,
++# printing one selected option per line in the order they were passed in.
++# Enter with nothing ticked still returns the row under the cursor, so a
++# caller never has to handle "multi" and "single" as separate shapes.
+ 
+ set -euo pipefail
+ 
+@@ -25,6 +30,7 @@ shift
+ options=()
+ menu_width=""
+ menu_maxheight=""
++menu_multi=0
+ 
+ while (( $# > 0 )); do
+   if [[ $1 == "--" ]]; then
+@@ -39,6 +45,9 @@ while (( $# > 0 )); do
+           fi
+           menu_width="$1"
+           ;;
++        --multi)
++          menu_multi=1
++          ;;
+         --height|--maxheight)
+           arg="$1"
+           shift
+@@ -83,8 +92,9 @@ payload=$(perl -MEncode=decode -MJSON::PP=encode_json,decode_json -e '
+   };
+   $payload->{width} = int($ARGV[4]) if length($ARGV[4] // "");
+   $payload->{maxHeight} = int($ARGV[5]) if length($ARGV[5] // "");
++  $payload->{multiSelect} = JSON::PP::true if $ARGV[6];
+   print encode_json($payload)
+-' "$prompt" "$options_json" "$selection_file" "$done_file" "$menu_width" "$menu_maxheight")
++' "$prompt" "$options_json" "$selection_file" "$done_file" "$menu_width" "$menu_maxheight" "$menu_multi")
+ 
+ omarchy-shell shell summon omarchy.menu "$payload" >/dev/null
+ 
+diff --git a/usr/share/omarchy/shell/plugins/menu/Menu.qml b/usr/share/omarchy/shell/plugins/menu/Menu.qml
+index aa879c18..3684b12f 100644
+--- a/usr/share/omarchy/shell/plugins/menu/Menu.qml
++++ b/usr/share/omarchy/shell/plugins/menu/Menu.qml
+@@ -56,6 +56,14 @@ Item {
+   readonly property bool dmenuActive: mode === "select" || mode === "input"
+   property string dmenuPrompt: ""
+   property var dmenuOptions: []
++  // Multi-select hands Tab the job of ticking rows and turns Enter into
++  // "confirm what is ticked". Ticks are keyed by the value the row would
++  // return -- the very string the caller asked to have its rows told apart by
++  // -- so they survive the list being refiltered underneath them.
++  property bool multiSelect: false
++  property var checkedValues: ({})
++  readonly property bool multiActive: multiSelect && mode === "select"
++  readonly property int checkedCount: Object.keys(checkedValues).length
+   property string selectionFile: ""
+   property string doneFile: ""
+   property int dmenuWidth: 300
+@@ -550,6 +558,18 @@ Item {
+     root.cursorActive = target >= 0
+   }
+ 
++  // An option is "<label>", "<glyph>\t<label>", or "<glyph>\t<label>\t<subtext>".
++  // The glyph never comes back with the selection; the subtext renders under the
++  // label, filters alongside it, and returns with the selection as a stable key
++  // for same-named rows.
++  function parseDmenuOption(option) {
++    var parts = String(option || "").split("\t")
++    var icon = parts.length > 1 ? parts.shift() : ""
++    var label = parts.shift() || ""
++    var detail = parts.join("\t")
++    return { icon: icon, label: label, detail: detail }
++  }
++
+   function rebuildDmenuDisplay() {
+     displayModel.clear()
+     root.searchDivider = false
+@@ -561,27 +581,20 @@ Item {
+ 
+     var query = root.filterText.trim().toLowerCase()
+     for (var i = 0; i < root.dmenuOptions.length; i++) {
+-      // An option is "<label>", "<glyph>\t<label>", or
+-      // "<glyph>\t<label>\t<subtext>". The glyph never comes back with the
+-      // selection; the subtext renders under the label, filters alongside it,
+-      // and returns with the selection as a stable key for same-named rows.
+-      var parts = String(root.dmenuOptions[i] || "").split("\t")
+-      var icon = parts.length > 1 ? parts.shift() : ""
+-      var label = parts.shift() || ""
+-      var detail = parts.join("\t")
+-      if (query && label.toLowerCase().indexOf(query) < 0
+-          && detail.toLowerCase().indexOf(query) < 0) continue
++      var option = root.parseDmenuOption(root.dmenuOptions[i])
++      if (query && option.label.toLowerCase().indexOf(query) < 0
++          && option.detail.toLowerCase().indexOf(query) < 0) continue
+       displayModel.append({
+         itemId: "dmenu." + i,
+         disabled: false,
+         kind: "dmenu",
+-        icon: icon,
++        icon: option.icon,
+         iconFont: "",
+         appIcon: "",
+         appId: "",
+-        label: label,
++        label: option.label,
+         target: "",
+-        detail: detail,
++        detail: option.detail,
+         path: "",
+         childCount: 0,
+         action: "",
+@@ -764,8 +777,12 @@ Item {
+         return
+       }
+       if (index < 0 || index >= displayModel.count) return
++      if (root.multiActive) {
++        root.toggleCheckedAt(index)
++        return
++      }
+       var picked = displayModel.get(index)
+-      root.applyDmenuSelection(picked.detail ? picked.label + "\t" + picked.detail : picked.label)
++      root.applyDmenuSelection(root.dmenuValue(picked.label, picked.detail))
+       return
+     }
+ 
+@@ -812,6 +829,57 @@ Item {
+     if (root.appLibrary) root.appLibrary.remove(target.appId, target.label)
+   }
+ 
++  // The string a dmenu row hands back: the label, plus the subtext that tells
++  // same-named rows apart.
++  function dmenuValue(label, detail) {
++    return detail ? label + "\t" + detail : label
++  }
++
++  function isChecked(label, detail) {
++    return !!root.checkedValues[root.dmenuValue(label, detail)]
++  }
++
++  function toggleCheckedAt(index) {
++    if (!root.multiActive || index < 0 || index >= displayModel.count) return
++
++    var row = displayModel.get(index)
++    var value = root.dmenuValue(row.label, row.detail)
++    // Rebuild rather than mutate: a `var` property only republishes to the
++    // bindings that read it -- the row checkboxes -- when the reference itself
++    // changes.
++    var next = ({})
++    for (var key in root.checkedValues) next[key] = true
++    if (next[value]) delete next[value]
++    else next[value] = true
++    root.checkedValues = next
++  }
++
++  // Ticked rows in the order the caller supplied them rather than the order
++  // they were ticked in: the caller wrote the list, so the answer reads back
++  // in its terms.
++  function checkedSelection() {
++    var picked = []
++    for (var i = 0; i < root.dmenuOptions.length; i++) {
++      var option = root.parseDmenuOption(root.dmenuOptions[i])
++      var value = root.dmenuValue(option.label, option.detail)
++      if (root.checkedValues[value]) picked.push(value)
++    }
++    return picked.join("\n")
++  }
++
++  // Enter with nothing ticked still means "this one", so reaching for a
++  // multi-select menu costs a single pick nothing.
++  function confirmMultiSelection() {
++    if (root.checkedCount > 0) {
++      root.applyDmenuSelection(root.checkedSelection())
++      return
++    }
++
++    if (displayModel.count === 0) return
++    var picked = displayModel.get(root.cursorActive ? root.selectedIndex : 0)
++    root.applyDmenuSelection(root.dmenuValue(picked.label, picked.detail))
++  }
++
+   function applyDmenuSelection(value) {
+     applySerial = requestSerial
+     opened = false
+@@ -837,6 +905,8 @@ Item {
+   function openExistingMenu(initialMenu) {
+     requestSerial += 1
+     mode = "menu"
++    multiSelect = false
++    checkedValues = ({})
+     requestActive = false
+     selectionFile = ""
+     doneFile = ""
+@@ -863,6 +933,8 @@ Item {
+     mode = payload.mode === "input" ? "input" : "select"
+     dmenuPrompt = String(payload.prompt || (mode === "input" ? "Input" : "Select"))
+     dmenuOptions = Array.isArray(payload.options) ? payload.options : []
++    multiSelect = mode === "select" && !!payload.multiSelect
++    checkedValues = ({})
+     selectionFile = String(payload.selectionFile || "")
+     doneFile = String(payload.doneFile || "")
+     requestActive = !!doneFile
+@@ -1139,6 +1211,9 @@ Item {
+           } else if ((event.key === Qt.Key_Backspace || event.key === Qt.Key_Left) && !root.filterText) {
+             root.goBack()
+             event.accepted = true
++          } else if (root.multiActive && (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab)) {
++            root.toggleCheckedAt(root.cursorActive ? root.selectedIndex : 0)
++            event.accepted = true
+           } else if (event.key === Qt.Key_Up) {
+             root.select(-1)
+             event.accepted = true
+@@ -1154,6 +1229,7 @@ Item {
+           } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Right) {
+             if (root.dmenuActive) {
+               if (root.mode === "input") root.applyDmenuSelection(root.filterText)
++              else if (root.multiActive) root.confirmMultiSelection()
+               else if (displayModel.count > 0) root.activateIndex(root.cursorActive ? root.selectedIndex : 0)
+             } else if (root.cursorActive) root.activateIndex(root.selectedIndex)
+             else root.settleCursor()
+@@ -1201,7 +1277,8 @@ Item {
+           Text {
+             textFormat: Text.PlainText
+             anchors.left: parent.left
+-            anchors.right: parent.right
++            anchors.right: multiHint.visible ? multiHint.left : parent.right
++            anchors.rightMargin: multiHint.visible ? Style.space(10) : 0
+             anchors.verticalCenter: parent.verticalCenter
+             text: root.filterText || (root.dmenuActive ? (root.dmenuPrompt + "…") : ((root.item(root.activeMenu) ? (root.item(root.activeMenu).title || root.item(root.activeMenu).label) : "Go") + "…"))
+             color: root.foreground
+@@ -1211,6 +1288,21 @@ Item {
+             elide: Text.ElideRight
+           }
+ 
++          // Doubles as the only hint that Tab does anything here, so it names
++          // the key until a row is ticked and then reports the tally.
++          Text {
++            id: multiHint
++            textFormat: Text.PlainText
++            visible: root.multiActive
++            anchors.right: parent.right
++            anchors.verticalCenter: parent.verticalCenter
++            text: root.checkedCount > 0 ? (root.checkedCount + " selected") : "Tab to select"
++            color: root.foreground
++            opacity: root.checkedCount > 0 ? 0.85 : 0.45
++            font.family: root.fontFamily
++            font.pixelSize: Style.font.bodySmall
++          }
++
+         }
+ 
+         Item {
+@@ -1263,6 +1355,7 @@ Item {
+               required property bool disabled
+ 
+               readonly property bool hasCursor: root.cursorActive && row.index === root.selectedIndex
++              readonly property bool checked: root.multiActive && root.isChecked(row.label, row.detail)
+               readonly property bool isApp: row.kind === "app"
+               readonly property bool hasIcon: row.icon.length > 0 || row.isApp
+ 
+@@ -1355,7 +1448,7 @@ Item {
+ 
+               Row {
+                 id: trail
+-                width: Style.space(14)
++                width: root.multiActive ? Style.space(15) : Style.space(14)
+                 anchors.right: parent.right
+                 anchors.rightMargin: root.rowReservedBorderRight + Style.space(8)
+                 y: contentColumn.y + labelText.y + (labelText.height - height) / 2
+@@ -1372,8 +1465,37 @@ Item {
+                   anchors.verticalCenter: parent.verticalCenter
+                 }
+ 
++                Rectangle {
++                  id: checkbox
++                  visible: root.multiActive
++                  width: Style.space(15)
++                  height: Style.space(15)
++                  radius: Math.max(Style.space(3), Math.round(root.cornerRadius / 2))
++                  anchors.verticalCenter: parent.verticalCenter
++                  color: row.checked ? (row.hasCursor ? root.selectedText : root.foreground) : "transparent"
++                  border.width: Style.spacing.hairline
++                  border.color: Util.alpha(row.hasCursor ? root.selectedText : root.foreground, row.checked ? 1 : 0.4)
++
++                  Text {
++                    anchors.centerIn: parent
++                    textFormat: Text.PlainText
++                    visible: row.checked
++                    text: "✓"
++                    // The card background, not the row's: the fill is a text
++                    // color either way, so a check in the card's own ground
++                    // reads exactly as well as the label beside it. The
++                    // cursor row's fill is too near its own background to
++                    // carry a mark.
++                    color: root.background
++                    font.family: root.fontFamily
++                    font.pixelSize: Math.round(checkbox.height * 0.8)
++                    font.bold: true
++                  }
++                }
++
+                 Text {
+                   textFormat: Text.PlainText
++                  visible: !root.multiActive
+                   text: row.kind === "menu" || row.kind === "link" ? "›" : ""
+                   color: row.hasCursor ? root.selectedText : root.foreground
+                   opacity: row.kind === "menu" || row.kind === "link" ? 0.36 : 0
