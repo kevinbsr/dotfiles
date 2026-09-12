@@ -8,6 +8,10 @@
 # reads "connected" and Hyprland still lists the mode as active while the
 # monitor shows nothing.
 #
+# SINCE 2026-09-12 THIS SHOULD RARELY DO ANYTHING. DP-1 dropped from 240 Hz to
+# 120 Hz/10 bpc, which fits in DP 1.4 without DSC, and it is DSC that does not
+# renegotiate on wake. This stays as a safety net, not as the fix.
+#
 # WHAT ACTUALLY REVIVES IT: a mode cycle, low then high. Disabling and
 # re-enabling the output at the same mode is NOT enough -- with DSC the link
 # does not renegotiate on its own. DPMS off/on does not do it either. This was
@@ -17,6 +21,11 @@
 # AND HYPRLAND CANNOT BE TRUSTED to report it: it returns success over a dead
 # link. The only honest check is asking the monitor itself over DDC, which is
 # why this verifies with `ddcutil getvcp AE` and retries once.
+#
+# EVERY WAIT HERE IS A POLL WITH A DEADLINE, never a flat sleep. This runs on
+# every single resume, and the overwhelmingly common case is a healthy link that
+# needs nothing -- so the cost of the usual path is what matters. Flat sleeps
+# used to spend ~18 s before reaching that conclusion.
 
 log() { printf 'dp-wake-recover: %s\n' "$1"; }
 
@@ -30,11 +39,59 @@ if [[ -z ${HYPRLAND_INSTANCE_SIGNATURE:-} ]]; then
   export HYPRLAND_INSTANCE_SIGNATURE
 fi
 
-[[ $(cat /sys/class/drm/card0-DP-1/status 2>/dev/null) == connected ]] || {
-  log "DP-1 not connected; nothing to do"; exit 0; }
+# Is the cable there at all? Undocked, there is nothing to recover.
+#
+# THIS HAS TO WAIT, it cannot be a single read. Straight out of resume the
+# connector can still say "disconnected" for a moment while the kernel
+# re-probes, and a bare read would exit here with "nothing to do" on a machine
+# that is very much docked. The old flat `sleep 8` in the unit hid this by
+# accident; removing it exposed it.
+aguarda_conector() {
+  local limite=$((SECONDS + 10))
+  while ((SECONDS < limite)); do
+    [[ $(cat /sys/class/drm/card0-DP-1/status 2>/dev/null) == connected ]] && return 0
+    sleep 0.25
+  done
+  return 1
+}
+
+aguarda_conector || { log "DP-1 not connected after 10s; nothing to do"; exit 0; }
 
 BAIXO='hl.monitor({ output = "DP-1", mode = "3440x1440@60", position = "900x80", scale = 1.25, bitdepth = 8, cm = "srgb" })'
 ALTO='hl.monitor({ output = "DP-1", mode = "3440x1440@120", position = "900x80", scale = 1.25, bitdepth = 10, cm = "srgb" })'
+
+# What Hyprland believes it is driving on DP-1, rounded. Empty if the compositor
+# is not answering yet or the output is not listed.
+taxa_hyprland() {
+  hyprctl monitors -j 2>/dev/null \
+    | jq -r '.[] | select(.name=="DP-1") | .refreshRate | round' 2>/dev/null
+}
+
+# Wait for the compositor to have DP-1 back before touching anything.
+#
+# This replaces a flat `ExecStartPre=/bin/sleep 8` in the unit. That sleep was
+# paid on every resume, including the ones where the link came back fine. It
+# also guessed: 8 s was neither a guarantee that Hyprland was ready nor evidence
+# that it was not.
+#
+# Readiness means hyprctl answers AND lists DP-1 AND reports DPMS on. Without
+# the last two the DDC probe below has nothing to compare against, reads an
+# empty expectation, calls the link dead and cycles the mode for no reason.
+aguarda_hyprland() {
+  local limite=$((SECONDS + 20)) taxa dpms
+  while ((SECONDS < limite)); do
+    dpms=$(hyprctl monitors -j 2>/dev/null \
+      | jq -r '.[] | select(.name=="DP-1") | .dpmsStatus' 2>/dev/null)
+    taxa=$(taxa_hyprland)
+    if [[ $dpms == true && -n $taxa ]] && ((taxa > 1)); then
+      log "compositor ready after ${SECONDS}s (DP-1 at ${taxa} Hz)"
+      return 0
+    fi
+    sleep 0.25
+  done
+  log "compositor did not present DP-1 within 20s; trying anyway"
+  return 1
+}
 
 # Healthy means the monitor reports the rate Hyprland thinks it is driving --
 # NOT merely a non-zero one. A dying link passes through intermediate rates: a
@@ -43,7 +100,7 @@ ALTO='hl.monitor({ output = "DP-1", mode = "3440x1440@120", position = "900x80",
 # two sides is the whole signal.
 monitor_responde() {
   local d f esperado
-  esperado=$(hyprctl monitors -j 2>/dev/null | jq -r '.[] | select(.name=="DP-1") | .refreshRate | round')
+  esperado=$(taxa_hyprland)
   d=$(ddcutil detect --brief 2>/dev/null | awk '/^Display /{x=$2} /VG34WQML5A/{print x; exit}')
   [[ -n $d ]] || { log "monitor not on DDC"; return 1; }
   f=$(ddcutil -d "$d" getvcp AE 2>/dev/null | sed 's/.*): //')
@@ -54,10 +111,42 @@ monitor_responde() {
   awk -v a="$hz" -v b="$esperado" 'BEGIN{ exit !(a-b<10 && b-a<10) }'
 }
 
-ciclo() {
-  hyprctl eval "$BAIXO" >/dev/null 2>&1; sleep 5
-  hyprctl eval "$ALTO"  >/dev/null 2>&1; sleep 5
+# Poll the monitor until it agrees, or give up. Replaces `sleep 5` after each
+# modeset: the panel usually locks well before five seconds, and when it never
+# locks, waiting the full five changes nothing.
+#
+# A DDC round trip already costs about a second, so this paces itself rather
+# than hammering the i2c bus.
+aguarda_monitor() {
+  local limite=$((SECONDS + ${1:-8}))
+  while :; do
+    monitor_responde && return 0
+    ((SECONDS < limite)) || return 1
+    sleep 0.5
+  done
 }
+
+# Wait for Hyprland to acknowledge a modeset before issuing the next one.
+# Firing both halves of the cycle back to back races the compositor, and the
+# second one can land on a link that has not finished tearing down the first.
+aguarda_taxa() {
+  local alvo=$1 limite=$((SECONDS + 6)) taxa
+  while ((SECONDS < limite)); do
+    taxa=$(taxa_hyprland)
+    [[ -n $taxa ]] && ((taxa >= alvo - 5 && taxa <= alvo + 5)) && return 0
+    sleep 0.2
+  done
+  return 1
+}
+
+ciclo() {
+  hyprctl eval "$BAIXO" >/dev/null 2>&1
+  aguarda_taxa 60 || log "Hyprland did not settle at 60 Hz; continuing"
+  hyprctl eval "$ALTO" >/dev/null 2>&1
+  aguarda_taxa 120 || log "Hyprland did not settle at 120 Hz; continuing"
+}
+
+aguarda_hyprland
 
 # Probe before acting. The mode cycle is two modesets, so the screen blinks
 # twice every time it runs -- and most wakes do not need it. Asking the monitor
@@ -65,16 +154,20 @@ ciclo() {
 # A dead link still answers DDC, it just reports a rate near zero, which is what
 # makes this a usable probe rather than a guess.
 if monitor_responde; then
-  log "link already up; nothing to do"
+  log "link already up after ${SECONDS}s; nothing to do"
   exit 0
 fi
 
 log "link is dead; cycling the mode"
 ciclo
-if monitor_responde; then
-  log "link is up"
+if aguarda_monitor 8; then
+  log "link is up after ${SECONDS}s"
 else
   log "link still dead, cycling once more"
   ciclo
-  monitor_responde && log "link is up" || log "FAILED: DP-1 needs a physical replug"
+  if aguarda_monitor 10; then
+    log "link is up after ${SECONDS}s"
+  else
+    log "FAILED after ${SECONDS}s: DP-1 needs a physical replug"
+  fi
 fi

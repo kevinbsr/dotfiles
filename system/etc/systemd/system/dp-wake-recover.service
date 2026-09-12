@@ -12,9 +12,20 @@ After=hybrid-sleep.target
 Type=oneshot
 User=kevin
 Environment=XDG_RUNTIME_DIR=/run/user/1000
-# Hyprland needs a moment to have its outputs back before a modeset lands.
-ExecStartPre=/bin/sleep 8
+
+# No ExecStartPre=/bin/sleep here on purpose. There used to be one, 8 seconds,
+# to give Hyprland time to have its outputs back before a modeset landed. It was
+# paid on every single resume -- including the overwhelming majority where the
+# link came back fine and the script had nothing to do -- and it was a guess
+# either way: 8 s was neither proof the compositor was ready nor proof it was
+# not. The script now polls for the conditions it actually needs (the connector
+# reading "connected", hyprctl answering with DP-1 and DPMS on), each with its
+# own deadline, and the healthy path finishes in well under a second.
 ExecStart=/home/kevin/.local/bin/dp-wake-recover
+
+# Nothing inside the script waits without a deadline, but a hung ddcutil on a
+# wedged i2c bus should not leave a unit running forever.
+TimeoutStartSec=90
 
 [Install]
 WantedBy=suspend.target
