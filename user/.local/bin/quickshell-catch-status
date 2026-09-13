@@ -8,8 +8,14 @@
 SAIDA="$HOME/.local/state/quickshell-catch"
 
 echo "== catcher =="
-if pgrep -af "quickshell-catch [0-9]" >/dev/null 2>&1; then
-  echo "  running: $(pgrep -af 'quickshell-catch [0-9]' | head -1 | cut -d' ' -f2-)"
+# Match the script by its own path and exclude this process and its parent.
+# A loose pattern matches the shell that is running THIS command -- the command
+# line contains the script name -- and reports the watcher as running when it is
+# not. The same trap killed an interactive shell twice with pkill -f.
+linha=$(ps -eo pid,args --no-headers \
+  | awk -v me=$$ -v pai=$PPID '$1!=me && $1!=pai && /[q]uickshell-catch [0-9]+ [0-9]+/ {print; exit}')
+if [[ -n $linha ]]; then
+  echo "  running: $(awk '{$1=""; print}' <<<"$linha" | sed 's/^ *//')"
   tail -1 "$SAIDA/watcher.log" 2>/dev/null | sed 's/^/  last log: /'
 else
   echo "  NOT running."
