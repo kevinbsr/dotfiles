@@ -1,0 +1,56 @@
+#!/bin/bash
+# Is the quickshell catcher still watching, and did it catch anything?
+#
+# The notification at capture time can be missed, and the watcher exits after
+# one capture -- so "no notification" and "no watcher running" look identical
+# from the outside. This tells them apart.
+
+SAIDA="$HOME/.local/state/quickshell-catch"
+
+echo "== catcher =="
+if pgrep -af "quickshell-catch [0-9]" >/dev/null 2>&1; then
+  echo "  running: $(pgrep -af 'quickshell-catch [0-9]' | head -1 | cut -d' ' -f2-)"
+  tail -1 "$SAIDA/watcher.log" 2>/dev/null | sed 's/^/  last log: /'
+else
+  echo "  NOT running."
+  if [[ -e $SAIDA/ULTIMA-CAPTURA.txt ]]; then
+    echo "  It exits after one capture, and there is one -- so it did its job."
+  else
+    echo "  No capture either, so it was stopped or never started."
+    echo "  Start it with: quickshell-catch"
+  fi
+fi
+
+echo
+echo "== captures =="
+shopt -s nullglob
+arquivos=("$SAIDA"/burn-*.txt)
+if ((${#arquivos[@]} == 0)); then
+  echo "  none yet."
+else
+  for f in "${arquivos[@]}"; do
+    printf '  %s  (%s)\n' "$(basename "$f")" "$(date -r "$f" '+%d/%m %H:%M')"
+    grep -m1 '^pid ' "$f" | sed 's/^/      /'
+    grep -A1 -m1 'rss slope' "$f" | tail -1 | sed 's/^ */      rss: /'
+    echo "      suspects among children:"
+    sed -n '/## children/,/^$/p' "$f" | grep -vE '^##|^$' \
+      | grep -oE '(/home/kevin/\.config/omarchy/plugins/[^/ ]+|https://[^/]+)' \
+      | sort -u | sed 's/^/        /' | head -6
+  done
+  echo
+  echo "  Read one in full with:  less $SAIDA/ULTIMA-CAPTURA.txt"
+fi
+
+echo
+echo "== quickshell right now =="
+pid=$(pgrep -x quickshell | head -1)
+if [[ -z $pid ]]; then
+  echo "  not running."
+else
+  a=$(awk '{print $14+$15}' "/proc/$pid/stat"); sleep 2
+  b=$(awk '{print $14+$15}' "/proc/$pid/stat")
+  printf '  pid %s, cpu %s%%, rss %s MB, up %s min\n' \
+    "$pid" "$(( (b - a) / 2 ))" \
+    "$(awk '/VmRSS/{print int($2/1024)}' "/proc/$pid/status")" \
+    "$(ps -o etimes= -p "$pid" | awk '{printf "%.0f", $1/60}')"
+fi

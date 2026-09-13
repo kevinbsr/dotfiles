@@ -36,7 +36,16 @@ SAIDA="$CASA/.local/state/quickshell-catch"
 mkdir -p "$SAIDA"
 chown "$DONO" "$SAIDA" 2>/dev/null
 
-log() { printf '%s %s\n' "$(date +%H:%M:%S)" "$1"; }
+# Write each line straight to the log file as well as stdout. Redirecting stdout
+# to a file makes it block-buffered, so a watcher that sits idle for hours shows
+# an EMPTY log the whole time -- indistinguishable from one that crashed on
+# startup. Appending per line reopens the file each time, which flushes.
+log() {
+  local l
+  l="$(date +%H:%M:%S) $1"
+  printf '%s\n' "$l"
+  printf '%s\n' "$l" >>"$SAIDA/watcher.log"
+}
 
 cpu_de() { # $1 = pid, mede 1s
   local a b
@@ -102,8 +111,24 @@ for p in sorted(os.listdir('$CASA/.config/omarchy/plugins')):
 
     chown "$DONO" "$f" 2>/dev/null
     log "done -- $f"
-    command -v notify-send >/dev/null && \
-      notify-send "quickshell burn captured" "$f" 2>/dev/null
+
+    # Notify AS THE USER, with their session bus handed over explicitly.
+    # This runs as root, and root's notify-send cannot reach the user's session:
+    # it tries to autolaunch its own bus and fails. It fails quietly, too -- exit
+    # status 0 with the error only on stderr -- so the first version would have
+    # captured the burn and told nobody, which defeats the point of catching an
+    # intermittent fault at all.
+    uid=$(id -u "$DONO")
+    sudo -u "$DONO" \
+      DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
+      XDG_RUNTIME_DIR="/run/user/$uid" \
+      notify-send -u critical -i dialog-warning \
+        "quickshell burn captured" \
+        "$(basename "$f") -- run: quickshell-catch-status" 2>/dev/null
+
+    # A notification can be missed or dismissed. Leave a durable marker too.
+    ln -sfn "$f" "$SAIDA/ULTIMA-CAPTURA.txt"
+    chown -h "$DONO" "$SAIDA/ULTIMA-CAPTURA.txt" 2>/dev/null
     exit 0
   fi
 done
