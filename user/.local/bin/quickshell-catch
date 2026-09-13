@@ -1,0 +1,109 @@
+#!/bin/bash
+# Catch quickshell in the act when it pegs a core, and write down what it was
+# doing. Intermittent is the whole problem here: on 2026-09-13 the main thread
+# sat at 99% for ~15 minutes with RSS climbing 1.2 MB/s, and toggling a plugin
+# cleared it -- which means the evidence was gone before the cause was proven.
+# Disabling devbook.futbar stopped it, but RE-ENABLING did not bring it back,
+# so that plugin is a suspect and nothing more. This exists to settle it.
+#
+# Captures, at the moment of the burn and not after:
+#   - stack samples of the QML thread (where the JS actually is)
+#   - child processes (which plugin is fetching or spawning)
+#   - RSS slope (a parse loop allocates; a spin loop does not)
+#
+# Usage: quickshell-catch [limiar_cpu] [segundos_sustentados]
+# Writes to ~/.local/state/quickshell-catch/ and exits after one capture.
+
+# Re-exec under sudo up front, rather than calling sudo at capture time.
+#
+# yama ptrace_scope is 1 here: you may only attach to your own descendants, and
+# quickshell is not one, so gdb needs root. Asking for it later does not work --
+# this watcher can idle for hours and sudo's timestamp expires in minutes, so by
+# the time the burn arrives the credential is gone and the capture comes back
+# with no stacks at all. That is how the first version failed: it caught the
+# event and recorded nothing useful about it.
+if ((EUID != 0)); then
+  echo "needs root for gdb (ptrace_scope=1); re-running under sudo"
+  exec sudo -E DONO="${DONO:-$(id -un)}" CASA="$HOME" "$0" "$@"
+fi
+
+DONO=${DONO:-kevin}
+CASA=${CASA:-/home/$DONO}
+
+LIMIAR=${1:-80}
+SUSTENTADO=${2:-20}
+SAIDA="$CASA/.local/state/quickshell-catch"
+mkdir -p "$SAIDA"
+chown "$DONO" "$SAIDA" 2>/dev/null
+
+log() { printf '%s %s\n' "$(date +%H:%M:%S)" "$1"; }
+
+cpu_de() { # $1 = pid, mede 1s
+  local a b
+  a=$(awk '{print $14+$15}' "/proc/$1/stat" 2>/dev/null) || return 1
+  sleep 1
+  b=$(awk '{print $14+$15}' "/proc/$1/stat" 2>/dev/null) || return 1
+  echo $(( b - a ))
+}
+
+log "watching for quickshell above ${LIMIAR}% for ${SUSTENTADO}s"
+acima=0
+
+while :; do
+  pid=$(pgrep -x quickshell | head -1)
+  if [[ -z $pid ]]; then sleep 5; acima=0; continue; fi
+
+  c=$(cpu_de "$pid") || { sleep 5; continue; }
+  if ((c >= LIMIAR)); then
+    acima=$((acima + 1))
+  else
+    ((acima > 0)) && log "settled after ${acima}s at ${c}%"
+    acima=0
+  fi
+
+  if ((acima >= SUSTENTADO)); then
+    stamp=$(date +%Y%m%d-%H%M%S)
+    f="$SAIDA/burn-$stamp.txt"
+    log "CAUGHT IT at ${c}% -- capturing to $f"
+
+    {
+      echo "# quickshell burn, $stamp"
+      echo "pid $pid, up $(ps -o etimes= -p "$pid" | tr -d ' ')s, cpu ${c}%"
+      awk '/VmRSS/{print "rss " $2/1024 " MB"}' "/proc/$pid/status"
+      echo
+      echo "## enabled plugins"
+      python3 -c "
+import json,os
+d=json.load(open('$CASA/.config/omarchy/shell.json'))
+dis=set(d.get('disabledPlugins',[]))
+for p in sorted(os.listdir('$CASA/.config/omarchy/plugins')):
+    if p not in dis: print(' ', p)
+" 2>/dev/null
+      echo
+      echo "## children (who is fetching or spawning)"
+      ps --ppid "$pid" -o pid,etimes,stat,args --no-headers 2>/dev/null
+      echo
+      echo "## rss slope over 10s (allocating = parse loop, flat = spin loop)"
+      r0=$(awk '/VmRSS/{print $2}' "/proc/$pid/status"); sleep 10
+      r1=$(awk '/VmRSS/{print $2}' "/proc/$pid/status")
+      echo "  $((r0/1024)) MB -> $((r1/1024)) MB  ($(( (r1-r0)/1024 )) MB in 10s)"
+      echo
+      # gdb needs root here: yama ptrace_scope is 1, which only allows attaching
+      # to your own descendants, and quickshell is not one. Without sudo the
+      # stacks come back empty and the capture is worthless -- which is exactly
+      # what the first version of this produced.
+      echo "## QML thread stacks (12 samples)"
+      for i in $(seq 1 12); do
+        echo "--- sample $i ---"
+        timeout 15 gdb -p "$pid" -batch -ex "thread apply 1 bt 18" 2>/dev/null | grep '^#'
+        sleep 1
+      done
+    } >"$f" 2>&1
+
+    chown "$DONO" "$f" 2>/dev/null
+    log "done -- $f"
+    command -v notify-send >/dev/null && \
+      notify-send "quickshell burn captured" "$f" 2>/dev/null
+    exit 0
+  fi
+done
