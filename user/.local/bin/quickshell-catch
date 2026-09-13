@@ -80,33 +80,52 @@ while :; do
       echo "pid $pid, up $(ps -o etimes= -p "$pid" | tr -d ' ')s, cpu ${c}%"
       awk '/VmRSS/{print "rss " $2/1024 " MB"}' "/proc/$pid/status"
       echo
-      echo "## enabled plugins"
-      python3 -c "
-import json,os
-d=json.load(open('$CASA/.config/omarchy/shell.json'))
-dis=set(d.get('disabledPlugins',[]))
-for p in sorted(os.listdir('$CASA/.config/omarchy/plugins')):
-    if p not in dis: print(' ', p)
-" 2>/dev/null
+
+      # STACKS FIRST. The burn can end while the capture is still running, and
+      # everything else here is slower than sampling: the first version spent
+      # ten seconds measuring the RSS slope before it ever called gdb, and by
+      # then the thread was back in ppoll -- twelve samples of an idle event
+      # loop, which says nothing about what was spinning.
+      echo "## QML thread stacks (12 samples)"
+      for i in $(seq 1 12); do
+        echo "--- sample $i ---"
+        timeout 15 gdb -p "$pid" -batch -ex "thread apply 1 bt 18" 2>/dev/null | grep '^#'
+      done
       echo
       echo "## children (who is fetching or spawning)"
       ps --ppid "$pid" -o pid,etimes,stat,args --no-headers 2>/dev/null
+      echo
+      echo "## unreaped zombies (a plugin spawning without waiting)"
+      ps --ppid "$pid" -o stat --no-headers 2>/dev/null | grep -c Z
+      echo
+      echo "## open connections"
+      timeout 20 ss -tnp 2>/dev/null | grep "pid=$pid," | awk '{print "  ", $4, "->", $5}' | sort -u | head -12
+      echo
+      echo "## still burning after the samples?"
+      a=$(awk '{print $14+$15}' "/proc/$pid/stat"); sleep 2
+      b=$(awk '{print $14+$15}' "/proc/$pid/stat")
+      echo "  cpu now $(( (b - a) / 2 ))%"
       echo
       echo "## rss slope over 10s (allocating = parse loop, flat = spin loop)"
       r0=$(awk '/VmRSS/{print $2}' "/proc/$pid/status"); sleep 10
       r1=$(awk '/VmRSS/{print $2}' "/proc/$pid/status")
       echo "  $((r0/1024)) MB -> $((r1/1024)) MB  ($(( (r1-r0)/1024 )) MB in 10s)"
       echo
-      # gdb needs root here: yama ptrace_scope is 1, which only allows attaching
-      # to your own descendants, and quickshell is not one. Without sudo the
-      # stacks come back empty and the capture is worthless -- which is exactly
-      # what the first version of this produced.
-      echo "## QML thread stacks (12 samples)"
-      for i in $(seq 1 12); do
-        echo "--- sample $i ---"
-        timeout 15 gdb -p "$pid" -batch -ex "thread apply 1 bt 18" 2>/dev/null | grep '^#'
-        sleep 1
-      done
+
+      # Ask the SHELL which plugins are on. shell.json's disabledPlugins is not
+      # the source of truth -- it disagrees with the running shell, so a capture
+      # built from it lists plugins that are actually off and misleads whoever
+      # reads it later.
+      echo "## enabled plugins (from the shell, not shell.json)"
+      sudo -u "$DONO" XDG_RUNTIME_DIR="/run/user/$(id -u "$DONO")" \
+        qs -p /usr/share/omarchy/shell ipc call shell listPlugins 2>/dev/null \
+        | python3 -c "
+import json,sys
+try: d=json.load(sys.stdin)
+except Exception: print('  (could not read from the shell)'); raise SystemExit
+for p in sorted(d, key=lambda x: x['id']):
+    if p['enabled']: print('  ', p['id'], '' if p['firstParty'] else '(third-party)')
+" 2>/dev/null
     } >"$f" 2>&1
 
     chown "$DONO" "$f" 2>/dev/null
