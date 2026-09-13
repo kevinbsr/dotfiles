@@ -1,0 +1,42 @@
+[Unit]
+Description=EasyEffects audio processing (EQ and limiter for the combined sink)
+Documentation=https://github.com/wwmm/easyeffects
+
+# WHY THIS UNIT EXISTS INSTEAD OF AN AUTOSTART .desktop
+#
+# EasyEffects dies when PipeWire restarts. It does not reconnect -- it aborts:
+#     pw_manager.cpp: Remote error res: Broken pipe
+#     easyeffects[...]: code=dumped, signal=ABRT
+# That is exactly what happened on 2026-09-11, and because the only thing
+# starting it was an XDG autostart entry, nothing brought it back. The audio ran
+# without EQ or limiter for two days and nothing reported it -- the sink was
+# still there and still playing, just unprocessed.
+#
+# An autostart .desktop runs once at login and has no opinion about crashes.
+# systemd does, which is the whole point of moving it here.
+
+After=pipewire.service pipewire-pulse.service wireplumber.service
+Wants=pipewire.service
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+
+# --gapplication-service starts it windowless, as a background service. Without
+# it the binary opens the GUI.
+ExecStart=/usr/bin/easyeffects --gapplication-service
+
+# The failure this unit is here to survive. RestartSec gives PipeWire time to
+# finish coming up first -- restarting into a socket that is not ready just
+# burns another crash.
+Restart=on-failure
+RestartSec=5
+
+# A crash loop is a different problem from a single crash, and it should not be
+# answered by hammering the audio stack. Five attempts in a minute and it stops
+# and stays stopped, where `systemctl --user status easyeffects` can show why.
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Install]
+WantedBy=graphical-session.target

@@ -107,6 +107,14 @@ systemctl enable dp-wake-recover.service
 sudo -u "$REAL_USER" XDG_RUNTIME_DIR="/run/user/$USER_UID" \
   systemctl --user enable --now dp-dpms-watch.service || true
 
+# EasyEffects as a service rather than an XDG autostart entry. It aborts when
+# PipeWire restarts and does not come back on its own; an autostart entry runs
+# once at login and has no answer to that. The audio then keeps playing, just
+# with no EQ and no limiter, and nothing says so.
+echo "-> [USER] Enabling EasyEffects audio processing..."
+sudo -u "$REAL_USER" XDG_RUNTIME_DIR="/run/user/$USER_UID" \
+  systemctl --user enable --now easyeffects.service || true
+
 # Deploy custom binaries
 echo "-> [SYSTEM] Provisioning custom binaries..."
 mkdir -p /usr/local/bin
