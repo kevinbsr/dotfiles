@@ -1,0 +1,98 @@
+#!/bin/bash
+# Check that dp-wake-recover's assumptions about ddcutil still hold.
+#
+# WHY: ddcutil 3.0.0 reworked display detection and stopped trusting sysfs DRM
+# attributes for the proprietary NVIDIA driver by default (--force-sysfs-reliable
+# opts back in). The ASUS on DP-1 hangs off the NVIDIA card, and dp-wake-recover
+# finds it by parsing `ddcutil detect --brief`, then asks it for the refresh rate
+# with `getvcp AE`. If either changes shape, the probe silently concludes the
+# link is dead and cycles the mode on every single wake -- the screen blinks
+# twice, for nothing, forever.
+#
+# Run this after any ddcutil upgrade. It tests behaviour, not version numbers:
+# a version check would pass on a build that changed its output and fail on one
+# that did not.
+
+MONITOR=VG34WQML5A
+falhas=0
+
+ok()   { printf '  \033[32mok\033[0m    %s\n' "$1"; }
+fail() { printf '  \033[31mFAIL\033[0m  %s\n' "$1"; falhas=$((falhas + 1)); }
+info() { printf '        %s\n' "$1"; }
+
+echo "ddcutil $(ddcutil --version 2>/dev/null | head -1 | awk '{print $NF}') -- checking dp-wake-recover's assumptions"
+echo
+
+# 1. Does `detect --brief` still list the monitor, and still shape its output as
+#    "Display N" blocks? This is the parse dp-wake-recover depends on.
+saida=$(ddcutil detect --brief 2>/dev/null)
+if [[ -z $saida ]]; then
+  fail "ddcutil detect --brief produced nothing"
+else
+  ok "detect --brief answers"
+fi
+
+d=$(awk '/^Display /{x=$2} /'"$MONITOR"'/{print x; exit}' <<<"$saida")
+if [[ -n $d ]]; then
+  ok "monitor $MONITOR found as display $d"
+else
+  fail "monitor $MONITOR NOT found in detect output"
+  info "dp-wake-recover would call the link dead and cycle the mode on every wake."
+  info "Try: ddcutil detect --brief --force-sysfs-reliable"
+  if ddcutil detect --brief --force-sysfs-reliable 2>/dev/null | grep -q "$MONITOR"; then
+    info "--force-sysfs-reliable DOES find it -> add that flag in dp-wake-recover."
+  fi
+fi
+
+# 2. Does getvcp AE still answer, and still in the "...): <n> hz" shape the
+#    script strips with sed?
+if [[ -n $d ]]; then
+  bruto=$(ddcutil -d "$d" getvcp AE 2>/dev/null)
+  hz=$(sed 's/.*): //' <<<"$bruto")
+  hz=${hz%% *}
+  if [[ $hz =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+    ok "getvcp AE parses to a number: $hz Hz"
+  else
+    fail "getvcp AE did not parse"
+    info "raw output: ${bruto:-<empty>}"
+    info "dp-wake-recover strips this with: sed 's/.*): //'"
+  fi
+
+  # 3. The check that matters: does the monitor agree with the compositor?
+  #    Disagreement between the two sides is the entire signal the probe uses.
+  esperado=$(hyprctl monitors -j 2>/dev/null \
+    | jq -r '.[] | select(.name=="DP-1") | .refreshRate | round' 2>/dev/null)
+  if [[ -n $esperado && $hz =~ ^[0-9] ]]; then
+    if awk -v a="$hz" -v b="$esperado" 'BEGIN{exit !(a-b<10 && b-a<10)}'; then
+      ok "monitor ($hz Hz) agrees with Hyprland ($esperado Hz)"
+    else
+      fail "monitor says $hz Hz, Hyprland says $esperado Hz"
+      info "Either the link really is degraded, or the probe now reads the wrong display."
+    fi
+  else
+    info "skipped the agreement check (Hyprland not reporting DP-1)"
+  fi
+fi
+
+# 4. End to end: the real script, on the real link, must decide "nothing to do".
+echo
+if saida=$(timeout 60 "$HOME/.local/bin/dp-wake-recover" 2>&1); then
+  if grep -q "link already up" <<<"$saida"; then
+    ok "dp-wake-recover leaves a healthy link alone"
+  else
+    fail "dp-wake-recover did NOT take the healthy path"
+    info "it would blink the screen on every wake:"
+    sed 's/^/        | /' <<<"$saida"
+  fi
+else
+  fail "dp-wake-recover exited non-zero"
+  sed 's/^/        | /' <<<"$saida"
+fi
+
+echo
+if ((falhas == 0)); then
+  echo "All good -- ddcutil still behaves the way dp-wake-recover expects."
+else
+  echo "$falhas check(s) failed. Fix dp-wake-recover before trusting the next resume."
+fi
+exit $((falhas > 0))
