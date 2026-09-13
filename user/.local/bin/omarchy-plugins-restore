@@ -1,0 +1,37 @@
+#!/bin/bash
+# Put the shell's plugin set back exactly as it was before the stock-only test
+# of 2026-09-13, which turned off every third-party plugin to see whether the
+# quickshell stalls came from one of them.
+#
+# The state lives in the shell, not in a file. ~/.config/omarchy/shell.json has
+# a disabledPlugins list, but it is NOT the source of truth: editing it can turn
+# a plugin off and then fail to turn it back on, which is how a supposed A/B
+# test here produced a false negative -- the plugin never came back and the
+# result was read as "not the cause". Always go through the shell's own IPC.
+
+set -uo pipefail
+SHELL_PATH=/usr/share/omarchy/shell
+ESTADO="$HOME/.local/state/omarchy-plugins-before-stock-test.json"
+
+[[ -f $ESTADO ]] || { echo "no saved state at $ESTADO"; exit 1; }
+
+echo "restoring the plugin set saved in $ESTADO"
+python3 - "$ESTADO" <<'EOF' | while read -r id want; do
+import json, sys
+for p in json.load(open(sys.argv[1])):
+    print(p["id"], "true" if p["enabled"] else "false")
+EOF
+  atual=$(qs -p "$SHELL_PATH" ipc call shell listPlugins 2>/dev/null \
+    | python3 -c "
+import json,sys
+i='$id'
+for p in json.load(sys.stdin):
+    if p['id']==i: print('true' if p['enabled'] else 'false')
+" 2>/dev/null)
+  if [[ $atual != "$want" ]]; then
+    qs -p "$SHELL_PATH" ipc call shell setPluginEnabled "$id" "$want" >/dev/null 2>&1
+    printf '  %-42s -> %s\n' "$id" "$want"
+  fi
+done
+
+echo "done. Check with: qs -p $SHELL_PATH ipc call shell listPlugins"
