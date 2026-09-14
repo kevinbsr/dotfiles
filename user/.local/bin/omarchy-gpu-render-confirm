@@ -30,19 +30,11 @@ hypr_pid=$(hyprctl instances -j 2>/dev/null | jq -r --arg s "${HYPRLAND_INSTANCE
 [[ -n $hypr_pid ]] && printf '%s\n' "$hypr_pid" >"$S/gpu-render-confirmed"
 rm -f "$S/gpu-render-pending"
 
-# Suspend is not safe in NVIDIA-primary mode yet: on 2026-09-14 the machine hung
-# on the way into s2idle (last kernel line "Filesystems sync", no suspend exit)
-# and needed a hard reset. Until that is understood, every NVIDIA-primary
-# session holds a sleep inhibitor, so a suspend request fails with a reason
-# instead of freezing the machine. It is PartOf the graphical session and ends
-# at logout; hybrid sessions never get it.
-if [[ $(head -n1 "$S/gpu-render-active" 2>/dev/null) == nvidia ]]; then
-  systemd-run --user --unit=gpu-nvidia-no-sleep --collect --quiet \
-    --property=PartOf=graphical-session.target --property=After=graphical-session.target \
-    systemd-inhibit --what=sleep --mode=block --who="NVIDIA-primary session" \
-    --why="Suspend hung the machine in NVIDIA render mode (2026-09-14); log out to hybrid before sleeping" \
-    sleep infinity 2>/dev/null || true
-fi
+# No sleep inhibitor here any more. The suspend hang of 2026-09-14 was not
+# NVIDIA render mode itself but the S0ix self-refresh path, taken whenever VRAM
+# in use exceeds NVreg_S0ixPowerManagementVideoMemoryThreshold; that threshold is
+# now 8192 MB (/etc/modprobe.d/nvidia-rtd3.conf), and a suspend in this mode with
+# 670 MB of VRAM resumed cleanly.
 
 if [[ -f $S/gpu-render-reverted ]]; then
   when=$(cat "$S/gpu-render-reverted")
