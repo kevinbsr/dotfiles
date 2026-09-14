@@ -10,17 +10,22 @@
 #
 # Absolute latencies include ~50 ms of `qs ipc` start-up; compare runs against
 # each other, not against a click.
+#
+# Opens with `shell summon` (follows the FOCUSED monitor), not `kevin.hub tab`:
+# that IPC always lands on one fixed bar's widget, which after a new login need
+# not be eDP-1's -- the panel would open on another screen and score as missing.
+# Focus eDP-1 before running.
 SHELL_DIR=${1:-/usr/share/omarchy/shell}; LABEL=${2:-run}; N=${3:-5}
 OUT=~/.local/state/omarchy-panel-patch/bench-$LABEL; rm -rf "$OUT"; mkdir -p "$OUT"
-qs -p "$SHELL_DIR" ipc call kevin.hub hide >/dev/null 2>&1; sleep 1
+qs -p "$SHELL_DIR" ipc call shell hide kevin.hub >/dev/null 2>&1; sleep 1
 gpu-screen-recorder -w eDP-1 -f 165 -fm content -k h264 -q very_high -cursor no \
   -write-first-frame-ts yes -c mp4 -o "$OUT/rec.mp4" >"$OUT/rec.log" 2>&1 &
 REC=$!; sleep 2
 for i in $(seq 1 "$N"); do
   echo "open $(date +%s.%N)" >>"$OUT/eventos.txt"
-  qs -p "$SHELL_DIR" ipc call kevin.hub tab calendar >/dev/null 2>&1
+  qs -p "$SHELL_DIR" ipc call shell summon kevin.hub "{}" >/dev/null 2>&1
   sleep 1.3
-  qs -p "$SHELL_DIR" ipc call kevin.hub hide >/dev/null 2>&1
+  qs -p "$SHELL_DIR" ipc call shell hide kevin.hub >/dev/null 2>&1
   sleep 1.3
 done
 kill -INT $REC; wait $REC 2>/dev/null

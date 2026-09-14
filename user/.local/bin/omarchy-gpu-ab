@@ -1,0 +1,185 @@
+#!/bin/bash
+# omarchy:summary=Benchmark the current GPU render mode under a fixed, repeatable scenario
+#
+# Run it once in each render mode (hybrid / nvidia) and compare the saved
+# reports. Everything that could differ between runs is pinned:
+#   - media players are paused first and resumed afterwards if they were playing;
+#   - the load is a SYNTHETIC video (testsrc2, 1080p60) played by mpv fullscreen
+#     with CPU decoding (--hwdec=no), once on DP-1 and once on eDP-1, so decode
+#     cost is identical in both modes and only the compositing path changes;
+#   - mpv is launched through Hyprland (exec_cmd) so it gets the session's env,
+#     exactly like an app the user starts;
+#   - DP-1 and eDP-1 are moved to empty workspaces, then restored.
+#
+# Phases: idle, video on DP-1 and on eDP-1 (compositor load + mpv's own frame
+# pacing), and
+# kevin.hub opens on eDP-1 scored frame by frame by omarchy-panel-bench -- eDP-1
+# is the output that crosses GPUs in NVIDIA mode, so it is the one that could
+# get worse.
+#
+# Reports go to ~/.local/state/omarchy-gpu-ab/. Usage: omarchy-gpu-ab
+set -uo pipefail
+
+OUT_DIR="$HOME/.local/state/omarchy-gpu-ab"
+mkdir -p "$OUT_DIR"
+MODE=$(head -n1 "$HOME/.local/state/omarchy/gpu-render-active" 2>/dev/null | awk '{print $1}')
+MODE=${MODE:-unknown}
+STAMP=$(date +%Y%m%d-%H%M%S)
+REPORT="$OUT_DIR/$MODE-$STAMP.txt"
+VIDEO="$OUT_DIR/test-1080p60.mp4"
+SOCK="$OUT_DIR/mpv.sock"
+SHELL_DIR=/usr/share/omarchy/shell
+
+say() { printf '%s\n' "$*" | tee -a "$REPORT"; }
+
+HP=$(pgrep -x Hyprland | head -1)
+QP=$(pgrep -x quickshell | head -1)
+[[ -n $HP && -n $QP ]] || { echo "Hyprland or quickshell not running"; exit 1; }
+
+cpu_ticks() { awk '{print $14+$15}' "/proc/$1/stat"; }
+
+# Sample one window of N seconds: compositor + shell CPU, AMD busy (averaged),
+# NVIDIA utilization and power (averaged). The NVIDIA card is awake in both
+# modes while docked -- its outputs are in use -- so querying it wakes nothing.
+sample() { # $1 label, $2 seconds
+  local label=$1 secs=$2 h0 q0 h1 q1 amd=0 n=0 nv
+  nv=$(mktemp)
+  timeout "$((secs + 1))" nvidia-smi --query-gpu=utilization.gpu,power.draw \
+    --format=csv,noheader,nounits -l 1 >"$nv" 2>/dev/null &
+  local nvpid=$!
+  h0=$(cpu_ticks "$HP"); q0=$(cpu_ticks "$QP")
+  local end=$((SECONDS + secs))
+  while ((SECONDS < end)); do
+    amd=$((amd + $(cat /sys/class/drm/card*/device/gpu_busy_percent 2>/dev/null | head -1))); n=$((n + 1))
+    sleep 0.5
+  done
+  h1=$(cpu_ticks "$HP"); q1=$(cpu_ticks "$QP")
+  wait "$nvpid" 2>/dev/null
+  local nvavg
+  nvavg=$(awk -F', *' 'NF==2 {u+=$1; p+=$2; c++} END {if (c) printf "%.0f%% %.1f W", u/c, p/c; else print "n/a"}' "$nv")
+  rm -f "$nv"
+  say "$(printf '  %-24s Hyprland %5d ms/%ds | quickshell %4d ms | AMD busy %3d%% | NVIDIA %s' \
+    "$label" $(((h1 - h0) * 10)) "$secs" $(((q1 - q0) * 10)) $((n ? amd / n : 0)) "$nvavg")"
+}
+
+mpv_prop() { printf '{"command":["get_property","%s"]}\n' "$1" | socat - "$SOCK" 2>/dev/null | jq -r '.data // empty'; }
+
+# ---- save state -----------------------------------------------------------
+declare -A orig_ws
+while read -r name ws; do orig_ws[$name]=$ws; done < <(hyprctl monitors -j | jq -r '.[] | "\(.name) \(.activeWorkspace.id)"')
+FOCUS_WS=$(hyprctl activeworkspace -j | jq -r .id)
+mapfile -t playing < <(playerctl --list-all 2>/dev/null | while read -r p; do
+  [[ $(playerctl -p "$p" status 2>/dev/null) == Playing ]] && echo "$p"; done)
+
+restore() {
+  [[ -S $SOCK ]] && printf '{"command":["quit"]}\n' | socat - "$SOCK" >/dev/null 2>&1
+  for c in $(hyprctl clients -j | jq -r '.[] | select(.title=="omarchy-gpu-ab") | .address'); do
+    hyprctl dispatch "hl.dsp.window.close({ address = \"$c\" })" >/dev/null 2>&1
+  done
+  for name in "${!orig_ws[@]}"; do
+    hyprctl dispatch "hl.dsp.focus({ monitor = \"$name\" })" >/dev/null 2>&1
+    hyprctl dispatch "hl.dsp.focus({ workspace = \"${orig_ws[$name]}\" })" >/dev/null 2>&1
+  done
+  hyprctl dispatch "hl.dsp.focus({ workspace = \"$FOCUS_WS\" })" >/dev/null 2>&1
+  for p in "${playing[@]}"; do playerctl -p "$p" play 2>/dev/null; done
+}
+trap restore EXIT
+
+# Workspaces are bound to monitors by the hyprmoncfg profile: 1-5 the ASUS
+# (DP-1), 6-10 eDP-1, 11-13 HDMI-A-1. Asking for "any free one" once picked a
+# DP-1 workspace for an eDP-1 phase -- focus followed it to DP-1, the panel opened
+# there, and the eDP-1 recording scored an empty screen as "panel not detected".
+free_ws() { # $1 monitor
+  local used cands; used=$(hyprctl workspaces -j | jq '[.[] | select(.windows > 0) | .id]')
+  case $1 in DP-1) cands="5 4 3" ;; eDP-1) cands="10 9 8 7" ;; *) return 1 ;; esac
+  for w in $cands; do jq -e --argjson w "$w" 'index($w)' <<<"$used" >/dev/null || { echo "$w"; return; }; done; }
+
+# Put focus on an empty workspace of the given monitor, and prove it.
+goto_empty() { # $1 monitor -- sets TARGET_WS
+  local ws; ws=$(free_ws "$1") || return 1
+  TARGET_WS=$ws
+  hyprctl dispatch "hl.dsp.focus({ monitor = \"$1\" })" >/dev/null 2>&1
+  hyprctl dispatch "hl.dsp.focus({ workspace = \"$ws\" })" >/dev/null 2>&1
+  sleep 0.5
+  [[ $(hyprctl activeworkspace -j | jq -r .monitor) == "$1" ]]
+}
+
+# One video phase on one monitor; skipped (and said so) if mpv lands elsewhere.
+video_phase() { # $1 monitor
+  local mon=$1
+  say ""; say "## synthetic 1080p60 video, fullscreen on $mon, CPU decode"
+  if ! goto_empty "$mon"; then say "  SKIPPED: could not focus an empty workspace on $mon"; return; fi
+  rm -f "$SOCK"
+  hyprctl dispatch "hl.dsp.exec_cmd(\"mpv --title=omarchy-gpu-ab --fs --loop=inf --no-audio --hwdec=no --vo=gpu-next --video-sync=display-resample --input-ipc-server=$SOCK $VIDEO\")" >/dev/null 2>&1
+  # New windows open on the monitor UNDER THE CURSOR (Omarchy sets
+  # follow_mouse = 1), not on the focused workspace -- with the pointer on eDP-1
+  # an mpv meant for DP-1 opened on eDP-1. So wait for it, then move it by
+  # address onto the workspace chosen above, without following.
+  local addr="" where=""
+  for _ in $(seq 1 40); do
+    addr=$(hyprctl clients -j | jq -r '.[] | select(.title=="omarchy-gpu-ab") | .address' | head -1)
+    [[ -n $addr ]] && break
+    sleep 0.25
+  done
+  [[ -n $addr ]] && hyprctl dispatch "hl.dsp.window.move({ workspace = \"$TARGET_WS\", follow = false, window = \"address:$addr\" })" >/dev/null 2>&1
+  for _ in $(seq 1 40); do
+    where=$(hyprctl clients -j | jq -r --arg a "$addr" '.[] | select(.address==$a) | .monitor')
+    [[ -n $where && -S $SOCK && -n $(mpv_prop estimated-display-fps) ]] && break
+    sleep 0.25
+  done
+  local fs; fs=$(hyprctl clients -j | jq -r --arg a "$addr" '.[] | select(.address==$a) | .fullscreen')
+  [[ $fs == 0 || $fs == false ]] && hyprctl dispatch "hl.dsp.window.fullscreen({ mode = \"fullscreen\", window = \"address:$addr\" })" >/dev/null 2>&1
+  local where_name; where_name=$(hyprctl monitors -j | jq -r --argjson id "${where:--1}" '.[] | select(.id==$id) | .name')
+  if [[ $where_name != "$mon" ]]; then
+    say "  SKIPPED: mpv opened on '${where_name:-nowhere}', not $mon"
+    printf '{"command":["quit"]}\n' | socat - "$SOCK" >/dev/null 2>&1; sleep 1; return
+  fi
+  say "  mpv on $mon, workspace $TARGET_WS, fullscreen=$(hyprctl clients -j | jq -r --arg a "$addr" '.[] | select(.address==$a) | .fullscreen')"
+  sleep 3
+  local d0 m0 d1 m1
+  d0=$(mpv_prop vo-drop-frame-count); m0=$(mpv_prop mistimed-frame-count)
+  sample "video on $mon #1" 9
+  sample "video on $mon #2" 9
+  d1=$(mpv_prop vo-drop-frame-count); m1=$(mpv_prop mistimed-frame-count)
+  say "$(printf '  mpv on %s over 18 s: dropped %s, mistimed %s | display fps %s | vsync jitter %s' "$mon" \
+    "$(( ${d1:-0} - ${d0:-0} ))" "$(( ${m1:-0} - ${m0:-0} ))" \
+    "$(mpv_prop estimated-display-fps | cut -c1-6)" "$(mpv_prop vsync-jitter | cut -c1-6)")"
+  printf '{"command":["quit"]}\n' | socat - "$SOCK" >/dev/null 2>&1
+  for _ in $(seq 1 20); do [[ -z $(hyprctl clients -j | jq -r '.[] | select(.title=="omarchy-gpu-ab") | .address') ]] && break; sleep 0.25; done
+  sleep 1
+}
+
+# ---- header ---------------------------------------------------------------
+: >"$REPORT"
+say "# omarchy-gpu-ab $STAMP"
+say "render mode: $(cat "$HOME/.local/state/omarchy/gpu-render-active" 2>/dev/null)"
+say "compositor primary: $(grep -oE 'gpu /dev/dri/[a-z0-9]+ becomes primary drm' \
+  "$XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/hyprland.log" 2>/dev/null | head -1)"
+say "monitors: $(hyprctl monitors -j | jq -r '[.[] | "\(.name)@\(.refreshRate|round)"] | join(" ")')"
+
+[[ -f $VIDEO ]] || ffmpeg -v error -f lavfi -i testsrc2=size=1920x1080:rate=60 -t 20 \
+  -c:v libx264 -preset veryfast -crf 20 -pix_fmt yuv420p "$VIDEO"
+
+((${#playing[@]})) && playerctl --all-players pause 2>/dev/null
+sleep 2
+
+# ---- phase 1: idle --------------------------------------------------------
+say ""; say "## idle"
+sample "idle #1" 9
+sample "idle #2" 9
+
+# ---- phase 2: video on each monitor --------------------------------------
+video_phase DP-1
+video_phase eDP-1
+
+# ---- phase 3: hub opens on eDP-1 -----------------------------------------
+say ""; say "## kevin.hub opens on eDP-1 (empty workspace), frame-scored"
+if goto_empty eDP-1; then
+sleep 1
+"$HOME/.local/bin/omarchy-panel-bench" "$SHELL_DIR" "ab-$MODE" 5 2>&1 | sed 's/^/  /' | tee -a "$REPORT" >/dev/null
+tail -1 "$REPORT"
+else
+say "  SKIPPED: could not focus an empty workspace on eDP-1"
+fi
+
+say ""; say "report: $REPORT"
