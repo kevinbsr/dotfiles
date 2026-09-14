@@ -185,7 +185,12 @@ elif [[ -n "$nvidia_card" ]]; then
 -- registered as a second DRM device with a phantom Unknown-1 output, and
 -- autodetecting it crashed Hyprland on 2026-09-14 (see the hybrid block, which
 -- handles this case at runtime too).
-if io.open("/dev/dri/gpu-nvidia", "r") then hl.env("AQ_DRM_DEVICES", "/dev/dri/gpu-nvidia") end
+do
+  local p = io.popen("[ -e /dev/dri/gpu-nvidia ] && echo yes")
+  local out = p and p:read("*a") or ""
+  if p then p:close() end
+  if out == "yes\n" then hl.env("AQ_DRM_DEVICES", "/dev/dri/gpu-nvidia") end
+end
 hl.env("NVD_BACKEND", "direct")
 hl.env("LIBVA_DRIVER_NAME", "nvidia")
 hl.env("__GLX_VENDOR_LIBRARY_NAME", "nvidia")
