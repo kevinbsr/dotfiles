@@ -1,0 +1,25 @@
+#!/bin/bash
+# Compositor for the SDDM Wayland greeter: Omarchy's command, plus a GPU pin
+# when the BIOS runs the NVIDIA card alone.
+#
+# With "Enable Hybrid Graphics/Advanced Optimus" off in the BIOS the AMD iGPU is
+# gone and nothing evicts simpledrm (nvidia_drm runs with fbdev=0), so the boot
+# framebuffer stays registered as a second DRM device with a phantom Unknown-1
+# output. On 2026-09-14 the session Hyprland used it as a secondary renderer and
+# aborted into safe mode, and the greeter's Hyprland (seen after a logout) also
+# listed Unknown-1 and segfaulted in libaquamarine on exit. The user session is
+# pinned in ~/.config/hypr/envs.lua; this does the same for the greeter.
+#
+# Hybrid mode is left untouched: the panel is on the AMD there, so pinning the
+# NVIDIA card would lose it, and autodetection is what works in that mode.
+#
+# Installed as CompositorCommand by /etc/sddm.conf.d/50-greeter-gpu-pin.conf.
+# If Omarchy changes its own command in /etc/sddm.conf.d/10-wayland.conf, update
+# the exec line below to match.
+
+amd_bound=$(ls /sys/bus/pci/drivers/amdgpu 2>/dev/null | grep -c '^0000:')
+if [[ -e /dev/dri/gpu-nvidia && ! -e /dev/dri/gpu-amd && $amd_bound == 0 ]]; then
+  export AQ_DRM_DEVICES=/dev/dri/gpu-nvidia
+fi
+
+exec /usr/bin/start-hyprland -- --config /usr/share/sddm/hyprland.lua
