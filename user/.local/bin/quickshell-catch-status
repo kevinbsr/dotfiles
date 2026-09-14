@@ -8,25 +8,25 @@
 SAIDA="$HOME/.local/state/quickshell-catch"
 
 echo "== catcher =="
-# Match the script by its own path and exclude this process and its parent.
-# A loose pattern matches the shell that is running THIS command -- the command
-# line contains the script name -- and reports the watcher as running when it is
-# not. The same trap killed an interactive shell twice with pkill -f.
-linha=$(ps -eo pid,args --no-headers \
-  | awk -v me=$$ -v pai=$PPID '$1!=me && $1!=pai && /[q]uickshell-catch [0-9]+ [0-9]+/ {print; exit}')
-if [[ -n $linha ]]; then
-  echo "  running: $(awk '{$1=""; print}' <<<"$linha" | sed 's/^ *//')"
+# The watcher runs as the transient unit quickshell-catch.service (see the
+# catcher). Ask systemd, not ps: a ps pattern loose enough to find it also
+# matches the shell running this very command, which already reported a dead
+# watcher as alive once.
+if [[ $(systemctl is-active quickshell-catch.service 2>/dev/null) == active ]]; then
+  desde=$(systemctl show quickshell-catch.service -p ActiveEnterTimestamp --value)
+  echo "  running: quickshell-catch.service (since $desde)"
   tail -1 "$SAIDA/watcher.log" 2>/dev/null | sed 's/^/  last log: /'
 else
   echo "  NOT running."
   if [[ -e $SAIDA/ULTIMA-CAPTURA.txt ]]; then
     echo "  It exits after one capture, and there is one -- so it did its job."
+    echo "  Re-arm with: quickshell-catch"
   else
     echo "  No capture either, so it was stopped or never started."
-    echo "  Start it with: quickshell-catch"
+    echo "  Start it with: quickshell-catch   (asks for sudo once, then detaches)"
+    journalctl -u quickshell-catch.service -n 3 --no-pager -o cat 2>/dev/null | sed 's/^/  journal: /'
   fi
 fi
-
 echo
 echo "== captures =="
 shopt -s nullglob

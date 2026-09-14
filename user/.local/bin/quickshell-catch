@@ -11,27 +11,44 @@
 #   - child processes (which plugin is fetching or spawning)
 #   - RSS slope (a parse loop allocates; a spin loop does not)
 #
-# Usage: quickshell-catch [limiar_cpu] [segundos_sustentados]
+# Usage: quickshell-catch [cpu_threshold=50] [sustained_seconds=3]
 # Writes to ~/.local/state/quickshell-catch/ and exits after one capture.
 
-# Re-exec under sudo up front, rather than calling sudo at capture time.
+# Detach into a transient systemd service, as root, on first run.
 #
-# yama ptrace_scope is 1 here: you may only attach to your own descendants, and
-# quickshell is not one, so gdb needs root. Asking for it later does not work --
-# this watcher can idle for hours and sudo's timestamp expires in minutes, so by
-# the time the burn arrives the credential is gone and the capture comes back
-# with no stacks at all. That is how the first version failed: it caught the
-# event and recorded nothing useful about it.
-if ((EUID != 0)); then
-  echo "needs root for gdb (ptrace_scope=1); re-running under sudo"
-  exec sudo -E DONO="${DONO:-$(id -un)}" CASA="$HOME" "$0" "$@"
+# gdb needs root here: yama ptrace_scope is 1, so it can only attach to its own
+# descendants, and quickshell is not one. And the watcher has to outlive the
+# terminal it was started from. Three earlier ways of getting both failed:
+#   - calling sudo at capture time: the watcher idles for hours, sudo's
+#     timestamp expires, and the capture came back with no stacks;
+#   - re-exec'ing under plain sudo: it ran in the foreground and died with the
+#     terminal;
+#   - `sudo setsid -f`: died before writing a single log line. Not confirmed
+#     why; sudo's use_pty teardown when setsid's parent exits at once is the
+#     likely suspect.
+# systemd-run hands the process to PID 1, which owns it from then on: no tty, no
+# sudo timestamp, no session to die with. Run plain `quickshell-catch` from any
+# terminal; it asks for the password once and returns.
+if [[ ${QSCATCH_DETACHED:-} != 1 ]]; then
+  alvo=$(readlink -f "$0")
+  dono=${SUDO_USER:-$(id -un)}
+  casa=$(getent passwd "$dono" | cut -d: -f6)
+  prefixo=()
+  ((EUID != 0)) && prefixo=(sudo)
+  "${prefixo[@]}" systemctl reset-failed quickshell-catch.service 2>/dev/null
+  exec "${prefixo[@]}" systemd-run --unit=quickshell-catch --collect --quiet \
+    --setenv=QSCATCH_DETACHED=1 --setenv=DONO="$dono" --setenv=CASA="$casa" \
+    "$alvo" "$@"
 fi
 
 DONO=${DONO:-kevin}
 CASA=${CASA:-/home/$DONO}
 
-LIMIAR=${1:-80}
-SUSTENTADO=${2:-20}
+# 50% for 3 s. The first defaults (80% for 20 s) came from a guess; nineteen
+# hours of logging showed real episodes of 1 to 5 seconds, so a 20-second
+# window could never fire.
+LIMIAR=${1:-50}
+SUSTENTADO=${2:-3}
 SAIDA="$CASA/.local/state/quickshell-catch"
 mkdir -p "$SAIDA"
 chown "$DONO" "$SAIDA" 2>/dev/null
