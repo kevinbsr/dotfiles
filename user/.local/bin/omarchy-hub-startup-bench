@@ -1,0 +1,21 @@
+#!/bin/bash
+# Restart the shell and record what the hub costs to come up: weather fetches
+# spawned (wttr.in / open-meteo curls, by unique pid) and quickshell RSS.
+LABEL=${1:-run}
+omarchy-restart-shell >/dev/null 2>&1
+for i in $(seq 1 80); do pgrep -x quickshell >/dev/null && break; sleep 0.05; done
+SHPID=$(pgrep -x quickshell | head -1)
+declare -A vistos
+fim=$((SECONDS + 25))
+while ((SECONDS < fim)); do
+  while read -r pid args; do
+    [[ $args == *wttr.in* || $args == *open-meteo* ]] || continue
+    vistos[$pid]=$args
+  done < <(ps --ppid "$SHPID" -o pid=,args= 2>/dev/null)
+  sleep 0.05
+done
+wttr=0; meteo=0
+for a in "${vistos[@]}"; do [[ $a == *wttr.in* ]] && wttr=$((wttr+1)); [[ $a == *open-meteo* ]] && meteo=$((meteo+1)); done
+sleep 5
+rss=$(awk '/VmRSS/{print int($2/1024)}' /proc/$SHPID/status)
+echo "[$LABEL] buscas de clima nos primeiros 25 s: wttr.in=$wttr open-meteo=$meteo | RSS aos 30 s: ${rss} MB"

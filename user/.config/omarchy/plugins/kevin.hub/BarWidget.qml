@@ -49,12 +49,12 @@ BarWidget {
 
   function refresh() {
     displayDate = new Date()
-    if (panelLoader.item && panelLoader.item.refresh) panelLoader.item.refresh()
+    if (isPanelHost && hubPanel && hubPanel.refresh) hubPanel.refresh()
   }
 
-  // ---- Weather, read straight off the panel's always-live source rather
-  //      than off the weather page, which may never have been opened.
-  readonly property var weather: panelLoader.item ? panelLoader.item.weather : null
+  // ---- Weather, read straight off the service's single, always-live source
+  //      rather than off the weather page, which may never have been opened.
+  readonly property var weather: mediaService ? mediaService.weather : null
   readonly property string weatherLabel: weather ? weather.label : ""
 
   function refreshWeather() {
@@ -127,26 +127,51 @@ BarWidget {
   // ---- Panel. Shape contract for shell.summon/hide/toggle routing:
   //      Bar.findPanelWidget requires open/close/opened on the bar-widget
   //      root, so these forward to the nested panel.
-  readonly property bool opened: panelLoader.item ? panelLoader.item.opened === true : false
+  //
+  //      There is ONE panel for every monitor, owned by the hub service. This
+  //      widget only reports it as its own while it is the panel's host, so
+  //      the bars on the other monitors do not all light up their open dot.
+  readonly property var hubPanel: mediaService ? mediaService.panel : null
+  readonly property bool isPanelHost: !!mediaService && mediaService.panelHost === root
+  readonly property bool opened: isPanelHost && hubPanel ? hubPanel.opened === true : false
+
+  // Point the shared panel at this bar -- its screen, anchor and popout
+  // coordinator. If it is open on another monitor it is closed first, so it
+  // never jumps screens while someone is looking at it, and the other bar's
+  // coordinator is released with its own bar still attached.
+  function attachPanel() {
+    if (!mediaService) return null
+    mediaService.panelWanted = true
+    if (mediaService.panelHost !== root) {
+      var p = mediaService.panel
+      if (p && p.opened) p.close()
+      mediaService.panelHost = root
+    }
+    injectPanel()
+    return mediaService.panel
+  }
 
   function open() {
-    if (panelLoader.item) panelLoader.item.open()
+    var p = attachPanel()
+    if (p) p.open()
   }
 
   function close() {
-    if (panelLoader.item) panelLoader.item.close()
+    if (isPanelHost && hubPanel) hubPanel.close()
   }
 
   function togglePanel() {
-    if (panelLoader.item) panelLoader.item.toggle()
+    if (root.opened) close()
+    else open()
   }
 
   // Open the panel straight onto a named tab — what a keybinding wants when
   // it means "show me what is playing" rather than "show me the hub".
   function openTab(name) {
-    if (!panelLoader.item) return
-    panelLoader.item.selectTab(name)
-    panelLoader.item.open()
+    var p = attachPanel()
+    if (!p) return
+    p.selectTab(name)
+    p.open()
   }
 
   // What a click on one of the bar's glyphs means: a toggle *onto* a page.
@@ -154,20 +179,23 @@ BarWidget {
   // than resuming wherever the panel was last left — and only a second click,
   // with that page already up, puts the panel away.
   function toggleTab(name) {
-    if (!panelLoader.item) return
     if (!root.opened) {
       openTab(name)
       return
     }
-    if (panelLoader.item.currentTabId === name) {
-      panelLoader.item.close()
+    if (hubPanel.currentTabId === name) {
+      hubPanel.close()
       return
     }
-    panelLoader.item.selectTab(name)
+    hubPanel.selectTab(name)
   }
 
+  // Persists through the panel, which needs a bar to write with; attach only
+  // when nobody hosts it, so an IPC call does not steal it from an open screen.
   function toggleWeekStart() {
-    if (panelLoader.item) panelLoader.item.toggleWeekStart()
+    if (!mediaService) return
+    if (!mediaService.panelHost) attachPanel()
+    if (mediaService.panel) mediaService.panel.toggleWeekStart()
   }
 
   // The label fills more slot than it paints a mark for, at both
@@ -181,14 +209,15 @@ BarWidget {
   // Forwarded so this widget can stand in for the panel as the bar's popout
   // identity: Bar.requestPopout prefers closeForPopoutSwitch over close, and
   // KeyboardPanel reads popoutSwitchClosing back off its owner.
-  readonly property bool popoutSwitchClosing: panelLoader.item ? panelLoader.item.popoutSwitchClosing === true : false
+  readonly property bool popoutSwitchClosing: isPanelHost && hubPanel ? hubPanel.popoutSwitchClosing === true : false
 
   function closeForPopoutSwitch() {
-    if (panelLoader.item) panelLoader.item.closeForPopoutSwitch()
+    if (isPanelHost && hubPanel) hubPanel.closeForPopoutSwitch()
   }
 
   function injectPanel() {
-    var target = panelLoader.item
+    if (!isPanelHost) return
+    var target = hubPanel
     if (!target) return
     if ("bar" in target) target.bar = root.bar
     if ("settings" in target) target.settings = root.settings
@@ -199,24 +228,51 @@ BarWidget {
   implicitWidth: layout.implicitWidth
   implicitHeight: layout.implicitHeight
 
+  // Lend settings to the shared weather source, and have the one panel built
+  // at start-up by whichever widget arrives first, so no click pays for it.
+  function claimShared() {
+    if (!mediaService) return
+    if (!mediaService.settingsHub && root.settings && Object.keys(root.settings).length > 0)
+      mediaService.settingsHub = root
+    if (!mediaService.panelHost) {
+      mediaService.panelWanted = true
+      mediaService.panelHost = root
+      injectPanel()
+    }
+  }
+
+  onMediaServiceChanged: claimShared()
   onBarChanged: injectPanel()
-  onSettingsChanged: injectPanel()
+  onSettingsChanged: {
+    claimShared()
+    injectPanel()
+  }
+
+  Connections {
+    target: root.mediaService
+    ignoreUnknownSignals: true
+    function onSettingsHubChanged() { root.claimShared() }
+    function onPanelHostChanged() { root.claimShared() }
+    function onPanelChanged() {
+      root.injectPanel()
+      Qt.callLater(root.injectPanel)
+    }
+  }
+
+  // A monitor unplugged takes its bar with it; hand everything shared back.
+  Component.onDestruction: {
+    if (!mediaService) return
+    if (mediaService.settingsHub === root) mediaService.settingsHub = null
+    if (mediaService.panelHost === root) {
+      if (mediaService.panel && mediaService.panel.opened) mediaService.panel.close()
+      mediaService.panelHost = null
+    }
+  }
 
   SystemClock {
     id: clock
     precision: SystemClock.Minutes
     onDateChanged: root.displayDate = date
-  }
-
-  Loader {
-    id: panelLoader
-    active: true
-    source: Qt.resolvedUrl("Panel.qml")
-    visible: false
-    onLoaded: {
-      root.injectPanel()
-      Qt.callLater(root.injectPanel)
-    }
   }
 
   IpcHandler {

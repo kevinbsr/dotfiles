@@ -65,16 +65,6 @@ Panel {
   // page has ever been opened.
   readonly property var weather: hubService ? hubService.weather : null
 
-  // Lend this panel's settings to the shared source if nobody is yet.
-  function claimWeatherSettings() {
-    if (!hubService || hubService.settingsHub) return
-    if (!settings || Object.keys(settings).length === 0) return
-    hubService.settingsHub = root
-  }
-  onHubServiceChanged: claimWeatherSettings()
-  Component.onDestruction: {
-    if (hubService && hubService.settingsHub === root) hubService.settingsHub = null
-  }
 
   // One width for every tab, taken from the widest, so switching pages moves
   // the content and not the popup around it.
@@ -147,8 +137,6 @@ Panel {
       var next = root.indexOfTab(root.hubService.currentTab)
       if (next !== root.currentIndex) root.currentIndex = next
     }
-    // The panel lending settings went away; the next one steps in.
-    function onSettingsHubChanged() { root.claimWeatherSettings() }
   }
 
   // Remember the tab across restarts without paying for it mid-interaction.
@@ -299,10 +287,7 @@ Panel {
     page.contentY = page.contentHeight - page.height
   }
 
-  onSettingsChanged: {
-    syncTab()
-    claimWeatherSettings()
-  }
+  onSettingsChanged: syncTab()
 
   onCurrentIndexChanged: Qt.callLater(function() {
     root.activeTabItem = root.pageAt(root.currentIndex)
