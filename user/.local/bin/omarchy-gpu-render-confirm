@@ -23,9 +23,26 @@ for _ in $(seq 1 90); do
 done
 ((ready)) || { echo "session never became ready; leaving the marker armed" >&2; exit 1; }
 
-# The signature tells a later `hyprctl reload` (same session) from a new login.
-[[ -n ${HYPRLAND_INSTANCE_SIGNATURE:-} ]] && printf '%s\n' "$HYPRLAND_INSTANCE_SIGNATURE" >"$S/gpu-render-confirmed"
+# Record the PID of THIS Hyprland: the envs.lua block compares it with its own
+# ($PPID) to tell a config reload in a live session from a new login.
+hypr_pid=$(hyprctl instances -j 2>/dev/null | jq -r --arg s "${HYPRLAND_INSTANCE_SIGNATURE:-}" '.[] | select(.instance==$s) | .pid' | head -1)
+[[ -n $hypr_pid ]] || hypr_pid=$(pgrep -xu "$USER" Hyprland | head -1)
+[[ -n $hypr_pid ]] && printf '%s\n' "$hypr_pid" >"$S/gpu-render-confirmed"
 rm -f "$S/gpu-render-pending"
+
+# Suspend is not safe in NVIDIA-primary mode yet: on 2026-09-14 the machine hung
+# on the way into s2idle (last kernel line "Filesystems sync", no suspend exit)
+# and needed a hard reset. Until that is understood, every NVIDIA-primary
+# session holds a sleep inhibitor, so a suspend request fails with a reason
+# instead of freezing the machine. It is PartOf the graphical session and ends
+# at logout; hybrid sessions never get it.
+if [[ $(head -n1 "$S/gpu-render-active" 2>/dev/null) == nvidia ]]; then
+  systemd-run --user --unit=gpu-nvidia-no-sleep --collect --quiet \
+    --property=PartOf=graphical-session.target --property=After=graphical-session.target \
+    systemd-inhibit --what=sleep --mode=block --who="NVIDIA-primary session" \
+    --why="Suspend hung the machine in NVIDIA render mode (2026-09-14); log out to hybrid before sleeping" \
+    sleep infinity 2>/dev/null || true
+fi
 
 if [[ -f $S/gpu-render-reverted ]]; then
   when=$(cat "$S/gpu-render-reverted")

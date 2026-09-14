@@ -74,8 +74,14 @@ if [[ -n "$amd_card" && -n "$nvidia_card" ]]; then
 -- omarchy-gpu-render-confirm (autostart) removes it once the session is up. If
 -- Hyprland dies before that, the marker survives to the next login, and this
 -- block switches the preference back to hybrid instead of trying again.
--- A `hyprctl reload` re-runs this file inside a confirmed session; the
--- confirmed instance signature tells that apart from a fresh start.
+-- A config reload re-runs this file inside the SAME Hyprland process, so both
+-- markers carry the PID of the Hyprland that wrote them ($PPID of an io.popen
+-- shell is Hyprland itself). A marker owned by this very process is a reload,
+-- never a failed login. The first version keyed this on the instance signature,
+-- which the confirmer only records ~10 s in -- and hyprmoncfgd applies the
+-- monitor profile, reloading the config, ~6 s in. On 2026-09-14 that reload
+-- found this login's own pending marker, took it for a failed login, and
+-- flipped the preference to hybrid under a session that was running fine.
 --
 -- Everything shells out through io.popen and reads OUTPUT only: inside
 -- Hyprland os.execute and pclose return nil ("No child processes") whatever the
@@ -124,14 +130,15 @@ do
 
   local now = os.date("%Y-%m-%d %H:%M:%S")
   local want = ((read_line(state_file) or "hybrid"):match("^%s*(%S+)")) or "hybrid"
-  local sig = os.getenv("HYPRLAND_INSTANCE_SIGNATURE")
-  local reloading = sig ~= nil and sig ~= "" and read_line(confirmed) == sig
+  local hypr_pid = os.getenv("OMARCHY_GPU_RENDER_TEST_PID") or (sh("echo $PPID"):match("%d+") or "")
+  local reloading = hypr_pid ~= "" and read_line(confirmed) == hypr_pid     -- confirmed session
+  local same_session = hypr_pid ~= "" and read_line(pending) == hypr_pid    -- not yet confirmed
 
   -- `active` is a report and is always rewritten; only the pending marker
   -- depends on whether this is a fresh login or a reload.
   if want ~= "nvidia" then
     write(active, "hybrid (preference)\n")
-  elseif not reloading and exists(pending) then
+  elseif not reloading and not same_session and exists(pending) then
     write(state_file, "hybrid\n")
     os.remove(pending)
     write(reverted, now .. "\n")
@@ -141,7 +148,7 @@ do
   elseif not nvidia_has_external() then
     write(active, "hybrid (nvidia preferred, but no external monitor on the NVIDIA card)\n")
   else
-    if not reloading then write(pending, now .. "\n") end
+    if not reloading and not same_session then write(pending, hypr_pid .. "\n") end
     write(active, "nvidia\n")
     hl.env("AQ_DRM_DEVICES", dev .. "/gpu-nvidia:" .. dev .. "/gpu-amd")
     hl.env("__GLX_VENDOR_LIBRARY_NAME", "nvidia")
