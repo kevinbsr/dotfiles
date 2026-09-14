@@ -61,3 +61,8 @@ o.exec_on_start("/usr/bin/kdeconnectd")
 -- TODO: migrar para hl.gesture nativo (o campo `action` aceita funcao), o que
 -- dispensaria o daemon. Nao feito porque o enum de direcoes nao esta nos stubs.
 o.exec_on_start("libinput-gestures")
+
+-- Disarm the GPU render-mode dead-man switch once the session is really up
+-- (see ~/.config/hypr/envs.lua). Absolute path: ~/.local/bin is not reliably on
+-- PATH for things Hyprland launches itself.
+o.exec_on_start("/home/kevin/.local/bin/omarchy-gpu-render-confirm")

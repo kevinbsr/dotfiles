@@ -1,0 +1,36 @@
+#!/bin/bash
+# omarchy:summary=Confirm this session came up, disarming the GPU render-mode dead-man switch
+#
+# Runs once per login from ~/.config/hypr/autostart.lua. The NVIDIA-primary
+# block in ~/.config/hypr/envs.lua writes a "pending" marker before it points
+# Hyprland at the RTX 3060. If Hyprland dies before this script runs, the marker
+# survives and the next login reverts to hybrid by itself -- there is no visible
+# TTY on this machine to fix it by hand.
+#
+# So this must only disarm once the session is genuinely usable: Hyprland
+# answering on its socket AND the shell responding, not merely started.
+set -uo pipefail
+S="$HOME/.local/state/omarchy"
+mkdir -p "$S"
+
+ready=0
+for _ in $(seq 1 90); do
+  if hyprctl -j monitors >/dev/null 2>&1 && \
+     OMARCHY_SHELL_IPC_TIMEOUT=0.5s omarchy-shell shell ping >/dev/null 2>&1; then
+    ready=1; break
+  fi
+  sleep 1
+done
+((ready)) || { echo "session never became ready; leaving the marker armed" >&2; exit 1; }
+
+# The signature tells a later `hyprctl reload` (same session) from a new login.
+[[ -n ${HYPRLAND_INSTANCE_SIGNATURE:-} ]] && printf '%s\n' "$HYPRLAND_INSTANCE_SIGNATURE" >"$S/gpu-render-confirmed"
+rm -f "$S/gpu-render-pending"
+
+if [[ -f $S/gpu-render-reverted ]]; then
+  when=$(cat "$S/gpu-render-reverted")
+  notify-send -u critical -i dialog-warning "GPU render mode reverted to hybrid" \
+    "The NVIDIA-primary login of $when did not come up, so this session started in hybrid. Check ~/.cache/hyprland/hyprlandCrashReport*.txt before trying again." 2>/dev/null
+  rm -f "$S/gpu-render-reverted"
+fi
+exit 0

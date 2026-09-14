@@ -7,31 +7,6 @@ hl.env("OMARCHY_OCR_LANGS", "eng+por")
 -- O bloco de GPU abaixo é gerado por ~/.local/bin/omarchy-gpu-env-sync.
 -- Rodar de novo após trocar o modo gráfico na BIOS ou via supergfxctl.
 
--- >>> omarchy-gpu-env-sync -- auto-generated, do not edit by hand >>>
--- GPU mode detected: hybrid
--- Hybrid: AQ_DRM_DEVICES is deliberately NOT set. Aquamarine autodetects both
--- GPUs, renders on the AMD (the internal panel hangs off it) and still sees
--- the NVIDIA connectors, which is where the external HDMI and DisplayPort
--- ports are wired on this G15.
---
--- Do NOT reintroduce it with /dev/dri/by-path/... names. Aquamarine splits
--- AQ_DRM_DEVICES on ":" and by-path names contain colons, so
--- "/dev/dri/by-path/pci-0000:06:00.0-card" is shredded into three nonexistent
--- paths. The log says it plainly:
---   drm: Failed to canonicalize path /dev/dri/by-path/pci-0000
---   drm: Found no gpus to use, cannot continue
--- and Hyprland then dies with "CBackend::create() failed!", looping SDDM with
--- a TTY as the only way back in. That is what happened on 2026-08-09, with
--- both the two-card and the iGPU-only list -- the colons broke both.
---
--- If pinning is ever genuinely needed, use colon-free node names
--- (/dev/dri/card0, /dev/dri/card1) and be aware their numbering is not stable
--- across boots, which is the reason by-path was reached for in the first place.
---
--- No global LIBVA/GLX override either: forcing those to nvidia moves the whole
--- compositor onto the dGPU, which is what actually burned power here. Per-app
--- offload goes through nvidia-offload.
--- <<< omarchy-gpu-env-sync <<<
 
 -- Desfaz o default do Omarchy que joga a sessão inteira na dGPU.
 -- /usr/share/omarchy/default/hypr/nvidia.lua seta LIBVA_DRIVER_NAME=nvidia e
@@ -62,3 +37,111 @@ hl.env("VDPAU_DRIVER", "radeonsi")
 -- todas restauradas para nvidia.
 -- Vulkan voltando a enxergar as duas placas e "acorda no uso", que e o
 -- comportamento desejado: jogo pesado usa a dGPU, o resto fica na integrada.
+
+-- >>> omarchy-gpu-env-sync -- auto-generated, do not edit by hand >>>
+-- GPU mode detected: hybrid
+-- Hybrid. By default AQ_DRM_DEVICES is NOT set: Aquamarine autodetects both
+-- GPUs, renders on the AMD (the internal panel hangs off it) and drives the
+-- NVIDIA connectors -- HDMI-A-1 and DP-1 on this G15 -- as a secondary backend.
+--
+-- Do NOT reintroduce it with /dev/dri/by-path/... names. Aquamarine splits
+-- AQ_DRM_DEVICES on ":" and by-path names contain colons; on 2026-08-09 that
+-- produced "Failed to canonicalize path" -> "CBackend::create() failed!" and a
+-- login loop. /dev/dri/cardN is colon-free but not stable across boots. The
+-- colon-free, stable names come from /etc/udev/rules.d/61-dri-stable-names.rules.
+--
+-- ---- Optional NVIDIA-primary render mode --------------------------------
+-- Chosen with `omarchy-gpu-switch nvidia` (applies at next login) and stored
+-- in ~/.config/omarchy/gpu-render. Hyprland then composites on the RTX 3060,
+-- so the external monitors are scanned out by the card that renders them and
+-- every frame stops crossing GPUs; eDP-1 becomes the one that crosses.
+--
+-- It only engages when ALL of these hold, else the session starts hybrid:
+--   * /dev/dri/gpu-nvidia and /dev/dri/gpu-amd exist (the udev rule above);
+--   * an external monitor is connected to the NVIDIA card -- undocked there is
+--     nothing for it to drive, and rendering there would keep ~9 W awake for
+--     nothing. The preference is kept; the next docked login uses it;
+--   * the previous attempt was not left unconfirmed (dead-man switch below).
+--
+-- DEAD-MAN SWITCH. This machine has no visible TTY, so a failed login must fix
+-- itself. Before trying, a "pending" marker is written;
+-- omarchy-gpu-render-confirm (autostart) removes it once the session is up. If
+-- Hyprland dies before that, the marker survives to the next login, and this
+-- block switches the preference back to hybrid instead of trying again.
+-- A `hyprctl reload` re-runs this file inside a confirmed session; the
+-- confirmed instance signature tells that apart from a fresh start.
+--
+-- Everything shells out through io.popen and reads OUTPUT only: inside
+-- Hyprland os.execute and pclose return nil ("No child processes") whatever the
+-- exit status, because Hyprland reaps its own children. A `test -e` read from
+-- an exit code would always say "missing", silently.
+do
+  local home = os.getenv("HOME") or ""
+  local dev = os.getenv("OMARCHY_GPU_RENDER_DEV_DIR") or "/dev/dri"
+  local sysfs = os.getenv("OMARCHY_GPU_RENDER_SYSFS") or "/sys/class/drm"
+  local state_dir = home .. "/.local/state/omarchy"
+  local state_file = home .. "/.config/omarchy/gpu-render"
+  local pending = state_dir .. "/gpu-render-pending"
+  local confirmed = state_dir .. "/gpu-render-confirmed"
+  local reverted = state_dir .. "/gpu-render-reverted"
+  local active = state_dir .. "/gpu-render-active"
+
+  local function sh(cmd)
+    local p = io.popen(cmd)
+    if not p then return "" end
+    local out = p:read("*a") or ""
+    p:close()
+    return out
+  end
+  local function exists(path)
+    return sh("[ -e '" .. path .. "' ] && echo yes") == "yes\n"
+  end
+  local function read_line(path)
+    local f = io.open(path, "r")
+    if not f then return nil end
+    local line = f:read("*l")
+    f:close()
+    return line
+  end
+  local function write(path, text)
+    sh("mkdir -p '" .. state_dir .. "' '" .. home .. "/.config/omarchy'")
+    local f = io.open(path, "w")
+    if f then f:write(text) f:close() end
+  end
+  local function nvidia_has_external()
+    local out = sh("n=$(basename \"$(readlink -f '" .. dev .. "/gpu-nvidia')\"); cat '" .. sysfs .. "'/\"$n\"-*/status 2>/dev/null")
+    for line in out:gmatch("[^\n]+") do
+      if line == "connected" then return true end
+    end
+    return false
+  end
+
+  local now = os.date("%Y-%m-%d %H:%M:%S")
+  local want = ((read_line(state_file) or "hybrid"):match("^%s*(%S+)")) or "hybrid"
+  local sig = os.getenv("HYPRLAND_INSTANCE_SIGNATURE")
+  local reloading = sig ~= nil and sig ~= "" and read_line(confirmed) == sig
+
+  -- `active` is a report and is always rewritten; only the pending marker
+  -- depends on whether this is a fresh login or a reload.
+  if want ~= "nvidia" then
+    write(active, "hybrid (preference)\n")
+  elseif not reloading and exists(pending) then
+    write(state_file, "hybrid\n")
+    os.remove(pending)
+    write(reverted, now .. "\n")
+    write(active, "hybrid (reverted: previous nvidia login never confirmed)\n")
+  elseif not (exists(dev .. "/gpu-nvidia") and exists(dev .. "/gpu-amd")) then
+    write(active, "hybrid (nvidia preferred, but /dev/dri/gpu-* missing: udev rule not installed?)\n")
+  elseif not nvidia_has_external() then
+    write(active, "hybrid (nvidia preferred, but no external monitor on the NVIDIA card)\n")
+  else
+    if not reloading then write(pending, now .. "\n") end
+    write(active, "nvidia\n")
+    hl.env("AQ_DRM_DEVICES", dev .. "/gpu-nvidia:" .. dev .. "/gpu-amd")
+    hl.env("__GLX_VENDOR_LIBRARY_NAME", "nvidia")
+    hl.env("LIBVA_DRIVER_NAME", "nvidia")
+    hl.env("VDPAU_DRIVER", "nvidia")
+    hl.env("NVD_BACKEND", "direct")
+  end
+end
+-- <<< omarchy-gpu-env-sync <<<

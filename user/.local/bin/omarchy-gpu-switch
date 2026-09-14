@@ -3,10 +3,64 @@
 # omarchy:summary=Switch GPU mode via supergfxd with confirmation
 
 MODE_ARG=$1
+RENDER_FILE="$HOME/.config/omarchy/gpu-render"
+STATE_DIR="$HOME/.local/state/omarchy"
 
 if [[ -z "$MODE_ARG" ]]; then
-    echo "Usage: $0 <integrated|hybrid|vfio>"
+    echo "Usage: $0 <integrated|hybrid|nvidia|vfio|status>"
     exit 1
+fi
+
+render_pref() { local r; r=$(head -n1 "$RENDER_FILE" 2>/dev/null); echo "${r:-hybrid}"; }
+
+# ---- status: what is preferred, what this session actually runs on, and why.
+if [[ "${MODE_ARG,,}" == "status" ]]; then
+    echo "supergfx mode:        $(supergfxctl -g 2>/dev/null || echo '?')"
+    echo "render preference:    $(render_pref)"
+    echo "this session:         $(cat "$STATE_DIR/gpu-render-active" 2>/dev/null || echo 'unknown (session predates the render-mode block)')"
+    log="${XDG_RUNTIME_DIR:-/run/user/$UID}/hypr/${HYPRLAND_INSTANCE_SIGNATURE:-}/hyprland.log"
+    primary=$(grep -oE 'gpu /dev/dri/[a-z0-9-]+ becomes primary drm' "$log" 2>/dev/null | head -1 | awk '{print $2}')
+    if [[ -n $primary ]]; then
+        drv=$(basename "$(readlink -f "/sys/class/drm/$(basename "$(readlink -f "$primary")")/device/driver")" 2>/dev/null)
+        echo "compositor renders on: $primary ($drv)"
+    fi
+    echo "dead-man marker:      $([[ -e $STATE_DIR/gpu-render-pending ]] && echo 'ARMED (session not confirmed yet)' || echo 'disarmed')"
+    echo "stable GPU names:     $(ls /dev/dri/gpu-amd /dev/dri/gpu-nvidia 2>/dev/null | tr '\n' ' ' || true)"
+    exit 0
+fi
+
+# ---- nvidia: keep the hardware in Hybrid, render on the RTX 3060.
+# No supergfx change and no sudo: only the preference file, read by the block
+# in ~/.config/hypr/envs.lua at the next login. It engages only while docked,
+# and reverts by itself if that login does not come up.
+if [[ "${MODE_ARG,,}" == "nvidia" ]]; then
+    if [[ "$(supergfxctl -g 2>/dev/null)" != "Hybrid" ]]; then
+        echo "NVIDIA-primary rendering needs supergfx in Hybrid (now: $(supergfxctl -g 2>/dev/null))."
+        echo "Run: $0 hybrid   first."
+        sleep 3; exit 1
+    fi
+    if [[ ! -e /dev/dri/gpu-nvidia || ! -e /dev/dri/gpu-amd ]]; then
+        echo "Missing /dev/dri/gpu-nvidia or /dev/dri/gpu-amd -- install the udev rule first:"
+        echo "  sudo install -Dm644 ~/dotfiles/system/etc/udev/rules.d/61-dri-stable-names.rules /etc/udev/rules.d/"
+        echo "  sudo udevadm trigger -c add -s drm"
+        sleep 3; exit 1
+    fi
+    if [[ "$(render_pref)" == "nvidia" ]]; then
+        echo "Already set to render on NVIDIA. This session: $(cat "$STATE_DIR/gpu-render-active" 2>/dev/null)"
+        sleep 2; exit 0
+    fi
+    echo "Render on the NVIDIA card from the next login (only while an external"
+    echo "monitor is connected to it). If that login fails, the one after it"
+    echo "comes back in hybrid automatically."
+    if gum confirm "Switch to NVIDIA rendering and log out now?"; then
+        mkdir -p "$(dirname "$RENDER_FILE")"
+        echo nvidia >"$RENDER_FILE"
+        sleep 1
+        omarchy-system-logout
+    else
+        echo "Cancelled."; sleep 1
+    fi
+    exit 0
 fi
 
 case "${MODE_ARG,,}" in
@@ -17,6 +71,19 @@ case "${MODE_ARG,,}" in
 esac
 
 CURRENT=$(supergfxctl -g 2>/dev/null)
+
+# Hybrid while rendering on NVIDIA: going back only needs the preference reset
+# and a logout -- supergfx is already where it should be.
+if [[ "$MODE" == "Hybrid" && "$CURRENT" == "Hybrid" && "$(render_pref)" == "nvidia" ]]; then
+    if gum confirm "Stop rendering on NVIDIA (back to the iGPU) and log out now?"; then
+        echo hybrid >"$RENDER_FILE"
+        sleep 1
+        omarchy-system-logout
+    else
+        echo "Cancelled."; sleep 1
+    fi
+    exit 0
+fi
 
 if [[ "$MODE" == "$CURRENT" ]]; then
     echo "Already in $MODE mode. No change needed."
@@ -42,6 +109,10 @@ echo "$ACTION_MSG"
 echo ""
 
 if gum confirm "Switch to $MODE and $ACTION now?"; then
+    # A supergfx change also drops the NVIDIA-render preference (only once
+    # confirmed, so cancelling keeps it): Integrated and Vfio take the card away
+    # from the compositor entirely.
+    mkdir -p "$(dirname "$RENDER_FILE")" && echo hybrid >"$RENDER_FILE"
     echo ""
     echo "Updating /etc/supergfxd.conf..."
 
