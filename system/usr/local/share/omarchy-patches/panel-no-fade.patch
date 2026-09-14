@@ -1,0 +1,19 @@
+--- a/usr/share/omarchy/shell/Ui/KeyboardPanel.qml	2026-09-14 02:45:19.151656845 -0300
++++ b/usr/share/omarchy/shell/Ui/KeyboardPanel.qml	2026-09-14 02:45:19.184757137 -0300
+@@ -388,9 +388,15 @@
+     radius: Style.cornerRadius
+     opacity: root.open || root.popoutSwitching ? 1.0 : 0
+ 
++    // Local change (kevin, 2026-09-14): no fade. At 140 ms OutCubic the card
++    // only reached 97% opacity ~100 ms after its first frame, on top of ~40 ms
++    // of QML work to build the window, and the fade dropped 2-3 client frames
++    // on the way -- recorded at 165 fps on eDP-1. Shown in one frame instead,
++    // time-to-fully-visible went from ~350 ms to ~116 ms. Chosen by feel after
++    // an A/B; the cross-fade used when switching panels below is untouched.
+     Behavior on opacity {
+       enabled: !root.popoutSwitching && !root.popoutSwitchClosing
+-      NumberAnimation { duration: 140; easing.type: Easing.OutCubic }
++      NumberAnimation { duration: 0; easing.type: Easing.OutCubic }
+     }
+ 
+     // Swallow clicks on the card so they don't bubble to the dismissal
