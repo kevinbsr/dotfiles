@@ -130,7 +130,24 @@ do
 
   -- `active` is a report and is always rewritten; only the pending marker
   -- depends on whether this is a fresh login or a reload.
-  if want ~= "nvidia" then
+  -- BIOS "Enable Hybrid Graphics/Advanced Optimus" OFF: the AMD iGPU is gone
+  -- from the bus and the MUX hands the panel to the NVIDIA card, so every
+  -- output hangs off it and nothing crosses GPUs. Aquamarine must be pinned to
+  -- that card: with no amdgpu to take over the boot framebuffer, simpledrm
+  -- stays registered and shows up as a second "GPU" with a phantom Unknown-1
+  -- monitor. Autodetection picked it up as a secondary renderer, EGL on it
+  -- failed (EGL_NOT_INITIALIZED) and Hyprland aborted in renderTexture on
+  -- 2026-09-14, relaunching in safe mode. The render-mode preference and the
+  -- dead-man switch do not apply: there is only one GPU to render on.
+  if exists(dev .. "/gpu-nvidia") and not exists(dev .. "/gpu-amd")
+     and sh("ls /sys/bus/pci/drivers/amdgpu 2>/dev/null | grep -c '^0000:'"):match("^0") then
+    write(active, "discrete (BIOS hybrid graphics off: NVIDIA drives every output)\n")
+    hl.env("AQ_DRM_DEVICES", dev .. "/gpu-nvidia")
+    hl.env("__GLX_VENDOR_LIBRARY_NAME", "nvidia")
+    hl.env("LIBVA_DRIVER_NAME", "nvidia")
+    hl.env("VDPAU_DRIVER", "nvidia")
+    hl.env("NVD_BACKEND", "direct")
+  elseif want ~= "nvidia" then
     write(active, "hybrid (preference)\n")
   elseif not reloading and not same_session and exists(pending) then
     write(state_file, "hybrid\n")
