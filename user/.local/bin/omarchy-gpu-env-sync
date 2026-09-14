@@ -147,8 +147,15 @@ do
   -- dead-man switch do not apply: there is only one GPU to render on.
   if exists(dev .. "/gpu-nvidia") and not exists(dev .. "/gpu-amd")
      and sh("ls /sys/bus/pci/drivers/amdgpu 2>/dev/null | grep -c '^0000:'"):match("^0") then
+    -- Pin the node whose OWN driver is nvidia, read from sysfs, rather than the
+    -- udev symlink: simpledrm hangs off the same PCI device, and before the udev
+    -- rule excluded it the link could point at simpledrm (black-screen greeter,
+    -- 2026-09-14). /dev/dri/cardN is colon-free; it is only unstable across boots,
+    -- and this runs at every login.
+    local node = sh("for c in /sys/class/drm/card[0-9]*; do case $c in *-*) continue;; esac; " ..
+      "[ \"$(basename \"$(readlink -f $c/device/driver)\")\" = nvidia ] && { echo /dev/dri/${c##*/}; break; }; done"):match("%S+")
     write(active, "discrete (BIOS hybrid graphics off: NVIDIA drives every output)\n")
-    hl.env("AQ_DRM_DEVICES", dev .. "/gpu-nvidia")
+    hl.env("AQ_DRM_DEVICES", node or (dev .. "/gpu-nvidia"))
     hl.env("__GLX_VENDOR_LIBRARY_NAME", "nvidia")
     hl.env("LIBVA_DRIVER_NAME", "nvidia")
     hl.env("VDPAU_DRIVER", "nvidia")

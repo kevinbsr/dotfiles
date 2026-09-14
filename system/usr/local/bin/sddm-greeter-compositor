@@ -17,9 +17,21 @@
 # If Omarchy changes its own command in /etc/sddm.conf.d/10-wayland.conf, update
 # the exec line below to match.
 
+# The node is looked up by its OWN driver in sysfs, not through the
+# /dev/dri/gpu-nvidia udev link: simpledrm is a child of the same PCI device, and
+# on 2026-09-14 that link had moved to simpledrm at logout -- this greeter then
+# came up on the dead boot framebuffer alone and the screen stayed black.
 amd_bound=$(ls /sys/bus/pci/drivers/amdgpu 2>/dev/null | grep -c '^0000:')
-if [[ -e /dev/dri/gpu-nvidia && ! -e /dev/dri/gpu-amd && $amd_bound == 0 ]]; then
-  export AQ_DRM_DEVICES=/dev/dri/gpu-nvidia
+nvidia_node=""
+for c in /sys/class/drm/card[0-9]*; do
+  [[ $c == *-* ]] && continue
+  if [[ $(basename "$(readlink -f "$c/device/driver")") == nvidia ]]; then
+    nvidia_node=/dev/dri/${c##*/}
+    break
+  fi
+done
+if [[ -n $nvidia_node && $amd_bound == 0 ]]; then
+  export AQ_DRM_DEVICES=$nvidia_node
 fi
 
 exec /usr/bin/start-hyprland -- --config /usr/share/sddm/hyprland.lua
