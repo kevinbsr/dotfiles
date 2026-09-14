@@ -8,6 +8,16 @@
 # a plugin off and then fail to turn it back on, which is how a supposed A/B
 # test here produced a false negative -- the plugin never came back and the
 # result was read as "not the cause". Always go through the shell's own IPC.
+#
+# KNOWN GAP -- IT RESTORES WHETHER A PLUGIN IS ON, NOT WHERE IT SITS. Turning a
+# bar widget back on with `shell setPluginEnabled` appends it to the END of the
+# bar's CENTER section, not where it was. After the 2026-09-13 restore,
+# kevin.monitor, kevin.sysmon and dizziee.system-updates landed next to the hub
+# instead of on the right, and had to be put back one by one with
+#   qs -p /usr/share/omarchy/shell ipc call shell moveBarWidget <id> \
+#     '{"section":"right","after":"<neighbour id>"}'
+# Before a future test, copy ~/.config/omarchy/shell.json aside too (its
+# bar.layout is the order), and not into /tmp -- a reboot wipes it.
 
 set -uo pipefail
 SHELL_PATH=/usr/share/omarchy/shell
