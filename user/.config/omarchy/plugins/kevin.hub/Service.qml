@@ -9,6 +9,16 @@ Item {
   id: root
 
   property var shell: null
+
+  // The hub's open tab, shared by every monitor's copy of the panel. There is
+  // one bar -- so one Panel.qml -- per monitor, and they used to agree on the
+  // tab by writing it to shell.json and waiting for the write to come back.
+  // That round trip is not cheap: persisting re-syncs every plugin widget on
+  // every bar, and the file watcher then re-applies the same config and does it
+  // again -- measured with qmlprofiler at ~100 ms plus ~100 ms of blocked QML
+  // thread per tab change, on all monitors at once. This service is a single
+  // instance, so a property here reaches every panel without touching disk.
+  property string currentTab: ""
   property string preferredPlayerKey: ""
   property var playerStartedAt: ({})
   property var pendingTrackOsd: null

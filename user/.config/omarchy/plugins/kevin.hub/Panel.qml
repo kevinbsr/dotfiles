@@ -77,14 +77,20 @@ Panel {
     return widest
   }
 
-  // Which tab is up. Persisted, so the hub reopens where it was left rather
-  // than snapping back to the calendar every time.
+  // Which tab is up.
   //
-  // Followed from settings rather than read once at construction, for two
-  // reasons: BarWidget.qml loads this panel and hands it `settings`
-  // afterwards, so reading up front would only ever see an empty object; and
-  // there is one bar surface — so one of these panels — per monitor, so the
-  // stored value is also how the other screens learn the tab changed.
+  // Live state goes through the hub service, which every monitor's copy of this
+  // panel shares; that is how the other screens learn the tab changed. It used
+  // to go through shell.json, and each change cost two full plugin re-syncs of
+  // every bar (see Service.qml, currentTab).
+  //
+  // shell.json still holds the last tab so a restart reopens it, but it is
+  // only written once the panel is shut (persistTabLater), never while the
+  // user is clicking. Settings are followed rather than read at construction
+  // because BarWidget.qml hands them over after loading this panel, so an
+  // up-front read would only ever see an empty object.
+  readonly property var hubService: bar && bar.shell && typeof bar.shell.serviceFor === "function"
+    ? bar.shell.serviceFor("kevin.hub") : null
   property int currentIndex: 0
   readonly property var currentTab: tabs[Math.max(0, Math.min(currentIndex, tabs.length - 1))]
   readonly property string currentTabId: currentTab ? String(currentTab.id) : ""
@@ -105,7 +111,13 @@ Panel {
     // The bare default before injection is an empty object; acting on it
     // would snap every panel to tab 0 on the way up.
     if (!settings || Object.keys(settings).length === 0) return
-    var next = indexOfTab(setting("tab", tabs[0].id))
+    // The service is newer than the file whenever the two disagree: the file
+    // only catches up after the panel closes, and any other settings write in
+    // between (the calendar's week start, the label format) would otherwise
+    // snap every panel back to the stale stored tab.
+    var wanted = (hubService && hubService.currentTab) ? hubService.currentTab : setting("tab", tabs[0].id)
+    if (hubService && !hubService.currentTab) hubService.currentTab = String(wanted)
+    var next = indexOfTab(wanted)
     if (next !== currentIndex) currentIndex = next
   }
 
@@ -113,9 +125,35 @@ Panel {
     var next = indexOfTab(id)
     if (next === currentIndex) return
     currentIndex = next
-    // The write comes back through the bar as the same value, which is what
-    // moves the panels on the other monitors; here it lands as a no-op.
-    persistSettings({ tab: String(tabs[next].id) })
+    var tabId = String(tabs[next].id)
+    // In memory, shared: the other monitors' panels follow through the
+    // Connections below. Without the service (it is keepLoaded, so this should
+    // not happen) fall back to the old, slow path rather than losing the sync.
+    if (hubService) hubService.currentTab = tabId
+    else persistSettings({ tab: tabId })
+  }
+
+  Connections {
+    target: root.hubService
+    ignoreUnknownSignals: true
+    function onCurrentTabChanged() {
+      var next = root.indexOfTab(root.hubService.currentTab)
+      if (next !== root.currentIndex) root.currentIndex = next
+    }
+  }
+
+  // Remember the tab across restarts without paying for it mid-interaction.
+  // A shell.json write stalls the QML thread on every bar for ~200 ms, so it
+  // waits until the panel is shut and its close animation is over, and it is
+  // skipped entirely when the stored tab already matches.
+  Timer {
+    id: persistTabLater
+    interval: 1500
+    onTriggered: {
+      if (root.opened || !root.currentTabId) return
+      if (String(root.setting("tab", "")) === root.currentTabId) return
+      root.persistSettings({ tab: root.currentTabId })
+    }
   }
 
   function cycleTab(direction) {
@@ -187,6 +225,9 @@ Panel {
     var entry = { id: root.moduleName }
     for (var existing in root.settings) if (existing !== "id") entry[existing] = root.settings[existing]
     for (var key in values) entry[key] = values[key]
+    // Other writes (week start, label format) carry the tab too, so they never
+    // put a stale one back on disk behind the service's newer value.
+    if (!("tab" in values) && root.currentTabId) entry.tab = root.currentTabId
 
     root.settings = entry
     if (root.hostWidget && "settings" in root.hostWidget) root.hostWidget.settings = entry
@@ -217,7 +258,11 @@ Panel {
     if (shownTabItem && typeof shownTabItem.tabShown === "function") shownTabItem.tabShown()
   }
 
-  onOpenedChanged: updateShownTab()
+  onOpenedChanged: {
+    updateShownTab()
+    if (opened) persistTabLater.stop()
+    else persistTabLater.restart()
+  }
   onActiveTabItemChanged: updateShownTab()
 
   // Hand the keyboard back to the panel after a tab's inline editor closes.
