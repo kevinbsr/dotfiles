@@ -1,0 +1,59 @@
+{
+  // Extend the Quickshell Omarchy menu with JSONC.
+  //
+  // IDs are object keys. The parent is inferred from the dotted id, so
+  // "personal.notes" appears under "personal", and "personal" appears on the
+  // root menu. Reuse an existing id to override/extend it.
+  //
+  // Fields:
+  //   icon        Nerd Font glyph shown in the icon column.
+  //   label       Visible row title.
+  //   action      Shell command to run. If omitted, the row is a submenu.
+  //   target      Existing submenu id to open. Use for links/aliases.
+  //   provider    Runtime provider function/command returning JSON rows.
+  //   aliases     alternate `omarchy menu summon <name>` routes; also searchable.
+  //   description Optional subtitle and extra search text.
+  //   when        Shell condition; hide row when it fails.
+  //   checked     Shell condition; append ✓ when it succeeds.
+  //
+  // Examples:
+  // "personal": {"icon":"","label":"Personal"},
+  // "personal.notes": {"icon":"󰎞","label":"Notes","action":"omarchy-launch-editor ~/notes"},
+  // "personal.files": {"icon":"","label":"Files","action":"uwsm-app -- nautilus ~/Documents"},
+  //
+  // Only use provider when a provider_name function or command named "name"
+  // returns JSON rows. Static submenus only need dotted ids.
+  //
+  // Example: replace the default About action by reusing the same id. Existing
+  // fields are kept unless overridden.
+  // "about": {"icon":"","label":"About","action":"omarchy-launch-or-focus-tui \"zsh -c 'fastfetch; read -k 1'\""},
+
+  // Refresh rate for the internal panel. Lives under Hardware, next to the
+  // other Display entries. The udev rules still force 165Hz on AC and 60Hz on
+  // battery, so a manual pick here holds only until the next plug/unplug.
+  "trigger.hardware.refresh-rate": {"icon":"󰑐","label":"Refresh Rate","aliases":["refresh-rate","hz","refresh"],"description":"Switch the internal display between 165Hz and 60Hz","when":"omarchy-hw-laptop"},
+  "trigger.hardware.refresh-rate.165": {"icon":"󰓅","label":"165 Hz","description":"Smooth","checked":"[[ \"$(omarchy-refresh-rate)\" == \"165\" ]]","action":"omarchy-refresh-rate 165"},
+  "trigger.hardware.refresh-rate.60": {"icon":"󰾆","label":"60 Hz","description":"Saves battery","checked":"[[ \"$(omarchy-refresh-rate)\" == \"60\" ]]","action":"omarchy-refresh-rate 60"},
+
+  // Modo gráfico do supergfxd. Substitui o menu "menus:gpuswitcher" do walker,
+  // que o Quattro não tem mais. Trocar de modo SEMPRE reinicia a máquina --
+  // o omarchy-toggle-hybrid-gpu edita /etc/supergfxd.conf e chama o reboot.
+  // Ele roda num terminal flutuante porque pede confirmação com gum e sudo.
+  // Escolher o modo já ativo é no-op (o script é toggle, não setter).
+  "trigger.hardware.gpu-mode": {"icon":"󰰓","label":"GPU Mode","aliases":["gpu","gpu-mode","supergfx","gpuswitcher"],"description":"Modo gráfico do supergfxd (reinicia a máquina)","when":"command -v supergfxctl >/dev/null"},
+  // NVIDIA (docked) is not a supergfx mode: the hardware stays Hybrid and only
+  // the compositor's primary GPU changes, via ~/.config/omarchy/gpu-render and
+  // the block in ~/.config/hypr/envs.lua. It applies at the next login (logout,
+  // no reboot, no sudo) and Hybrid goes back the same way. Absolute path to
+  // omarchy-gpu-switch: ~/.local/bin is not reliably on the menu's PATH.
+  "trigger.hardware.gpu-mode.hybrid": {"icon": "󰢮", "label": "Hybrid", "description": "iGPU renderiza, dGPU sob demanda via nvidia-offload", "checked": "[[ \"$(supergfxctl -g)\" == \"Hybrid\" ]] && ! [[ \"$(head -n1 ~/.config/omarchy/gpu-render 2>/dev/null)\" == \"nvidia\" ]]", "action": "if [[ \"$(head -n1 ~/.config/omarchy/gpu-render 2>/dev/null)\" == \"nvidia\" ]]; then omarchy-launch-floating-terminal-with-presentation /home/kevin/.local/bin/omarchy-gpu-switch hybrid; else [[ \"$(supergfxctl -g)\" == \"Hybrid\" ]] || omarchy-launch-floating-terminal-with-presentation omarchy-toggle-hybrid-gpu; fi"},
+  "trigger.hardware.gpu-mode.nvidia": {"icon": "󰾲", "label": "NVIDIA (docked)", "description": "Render on the RTX 3060 from the next login, only while an external monitor is on it; logs out, no reboot; a failed login reverts to hybrid by itself", "when": "command -v supergfxctl >/dev/null && [ -e /dev/dri/gpu-nvidia ]", "checked": "[[ \"$(supergfxctl -g)\" == \"Hybrid\" ]] && [[ \"$(head -n1 ~/.config/omarchy/gpu-render 2>/dev/null)\" == \"nvidia\" ]]", "action": "[[ \"$(head -n1 ~/.config/omarchy/gpu-render 2>/dev/null)\" == \"nvidia\" ]] || omarchy-launch-floating-terminal-with-presentation /home/kevin/.local/bin/omarchy-gpu-switch nvidia"},
+  "trigger.hardware.gpu-mode.integrated": {"icon":"󰾆","label":"Integrated","description":"INSTAVEL NESTE G15: tela preta em 2 de 3 boots (deadlock snd_card_free x PipeWire)","checked":"[[ \"$(supergfxctl -g)\" == \"Integrated\" ]]","action":"[[ \"$(supergfxctl -g)\" == \"Integrated\" ]] || omarchy-launch-floating-terminal-with-presentation omarchy-toggle-hybrid-gpu"},
+
+  // Cupertino: surface opacity profiles; commands preserve the active wallpaper.
+  "style.cupertino-glass": {"icon": "󰂵", "label": "Vidro Cupertino", "aliases": ["vidro", "cupertino-vidro", "glass"], "description": "Intensidade da transparência nos temas Cupertino", "when": "case \"$(cat \"$HOME/.local/state/omarchy/current/theme.name\")\" in cupertino|cupertino-light) true ;; *) false ;; esac"},
+  "style.cupertino-glass.suave": {"icon": "󰂵", "label": "Suave", "description": "Mais transparente", "action": "cupertino-vidro suave", "checked": "cupertino-vidro status | rg -q '^Em uso: cupertino(-light)? / suave$'"},
+  "style.cupertino-glass.equilibrado": {"icon": "󰂵", "label": "Equilibrado", "description": "Transparência moderada", "action": "cupertino-vidro equilibrado", "checked": "cupertino-vidro status | rg -q '^Em uso: cupertino(-light)? / equilibrado$'"},
+  "style.cupertino-glass.opaco": {"icon": "󰂵", "label": "Opaco", "description": "Fundos sólidos para leitura", "action": "cupertino-vidro opaco", "checked": "cupertino-vidro status | rg -q '^Em uso: cupertino(-light)? / opaco$'"},
+
+}
