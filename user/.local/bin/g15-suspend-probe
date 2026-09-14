@@ -1,0 +1,120 @@
+#!/bin/bash
+# omarchy:summary=Suspend once with the NVIDIA card holding more VRAM than the S0ix threshold
+#
+# WHY
+# The one suspend attempted in NVIDIA render mode (2026-09-14 03:55) hung the
+# machine hard. Suspends in hybrid mode work, and have since S0ix was enabled on
+# 2026-08-30. The NVIDIA driver picks one of two S0ix paths at suspend time:
+#   - VRAM in use <= NVreg_S0ixPowerManagementVideoMemoryThreshold (256 MB):
+#     copy VRAM to system memory and power the GPU off. Hybrid mode sits at
+#     ~100 MB, so every suspend so far took this path.
+#   - above the threshold: keep VRAM alive in self-refresh (GC6). NVIDIA mode
+#     puts the compositor and every client on the card, far above 256 MB, so the
+#     hung suspend is the only one that ever took this path.
+# This script separates the two causes WITHOUT NVIDIA render mode: stay in
+# hybrid, pin ~1 GB of VRAM with a CUDA allocation, suspend. If it hangs, the
+# self-refresh path is the culprit (and it would also hang a hybrid suspend with
+# a game running on the dGPU). If it resumes fine, the culprit is something else
+# about the compositor living on the NVIDIA card.
+#
+# RISK: this is expected to possibly HANG THE MACHINE. Close unsaved work first.
+# If the screen does not come back ~1 min after you press a key, hold the power
+# button, power on again WITHIN 3 MINUTES (pm_trace keeps its clue in the RTC,
+# which keeps ticking), and run:  g15-suspend-probe --report
+#
+# pm_trace stores a hash of the last device touched in the RTC, so the system
+# clock is wrong right after resume/reboot; the script re-syncs it.
+#
+# Usage: sudo g15-suspend-probe [MB]   (default 1024)
+#        g15-suspend-probe --report     (after a hang + reboot)
+set -uo pipefail
+
+STATE_DIR=/home/${SUDO_USER:-kevin}/.local/state/g15-suspend-probe
+CUDART=/opt/cuda/lib64/libcudart.so
+
+if [[ ${1:-} == --report ]]; then
+  echo "## pm_trace result from the previous boot's hang (kernel log of THIS boot)"
+  journalctl -k -b 0 --no-pager | grep -iE 'magic number|hash matches' || echo "(no pm_trace match -- the hang was outside device suspend/resume, or the reboot came too late)"
+  echo; echo "## last lines of the previous boot"
+  journalctl -b -1 --no-pager -o short-precise | grep -vE 'wireplumber|tailscale' | tail -25
+  echo; ls -1t "$STATE_DIR" 2>/dev/null | head -3 | sed "s|^|$STATE_DIR/|"
+  exit 0
+fi
+
+[[ $EUID -eq 0 ]] || { echo "run with sudo"; exit 1; }
+MB=${1:-1024}
+USER_NAME=${SUDO_USER:?run through sudo from your user}
+mkdir -p "$STATE_DIR"; chown "$USER_NAME:" "$STATE_DIR"
+LOG="$STATE_DIR/run-$(date +%Y%m%d-%H%M%S).txt"
+say() { printf '%s\n' "$*" | tee -a "$LOG"; logger -t g15-suspend-probe -- "$*"; }
+
+mode=$(head -n1 "/home/$USER_NAME/.local/state/omarchy/gpu-render-active" 2>/dev/null)
+[[ $mode == hybrid* ]] || { echo "session render mode is '$mode'; this test is meant for hybrid"; exit 1; }
+threshold=$(awk -F': ' '/S0ixPowerManagementVideoMemoryThreshold/ {print $2}' /proc/driver/nvidia/params)
+s0ix=$(awk -F': *' '/^ Status:/ {print $2}' /proc/driver/nvidia/gpus/*/power | tail -1)
+say "render mode: $mode | S0ix: $s0ix | threshold: ${threshold} MB | holding: $MB MB"
+
+holder_py=$(mktemp)
+cat >"$holder_py" <<EOF
+import ctypes, time
+cu = ctypes.CDLL("$CUDART")
+p = ctypes.c_void_p()
+r = cu.cudaMalloc(ctypes.byref(p), ctypes.c_size_t($MB * 1024 * 1024))
+print("cudaMalloc rc", r, flush=True)
+while True: time.sleep(3600)
+EOF
+chmod 644 "$holder_py"
+sudo -u "$USER_NAME" python3 "$holder_py" >>"$LOG" 2>&1 &
+HOLDER=$!
+
+cleanup() {
+  kill "$HOLDER" 2>/dev/null; rm -f "$holder_py"
+  echo 0 >/sys/power/pm_trace 2>/dev/null
+  echo 0 >/sys/power/pm_debug_messages 2>/dev/null
+  echo 0 >/sys/power/pm_print_times 2>/dev/null
+}
+trap cleanup EXIT
+
+used=0
+for _ in $(seq 1 30); do
+  used=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits 2>/dev/null | head -1)
+  (( ${used:-0} > 256 + 200 )) && break
+  sleep 0.5
+done
+# 256 MB is the driver's default threshold, the one that hung (2026-09-14). With
+# the fix installed the current threshold is higher, and a run above 256 MB is
+# exactly what proves the fix.
+if (( ${used:-0} <= 256 )); then
+  say "ABORT: VRAM in use is ${used} MB, not above the 256 MB default threshold -- the test would prove nothing"
+  exit 1
+fi
+if (( used > threshold )); then path="self-refresh (the path that hung)"; else path="copy + power off (the fix)"; fi
+say "VRAM in use before suspend: ${used} MB -> expected S0ix path: $path"
+
+before=$(cat /sys/power/suspend_stats/success); fail_before=$(cat /sys/power/suspend_stats/fail)
+echo 1 >/sys/power/pm_print_times
+echo 1 >/sys/power/pm_debug_messages
+echo 1 >/sys/power/pm_trace
+sync
+say "suspending now; wake the machine with a key after ~20 s"
+systemctl suspend
+
+# systemctl returns before the sleep starts; wait for the resume to be counted.
+for _ in $(seq 1 600); do
+  (( $(cat /sys/power/suspend_stats/success) > before )) && break
+  (( $(cat /sys/power/suspend_stats/fail) > fail_before )) && break
+  sleep 1
+done
+sleep 3
+echo 0 >/sys/power/pm_trace
+
+say "RESUMED. suspend_stats: success $(cat /sys/power/suspend_stats/success), fail $(cat /sys/power/suspend_stats/fail), last failed step: $(cat /sys/power/suspend_stats/last_failed_step 2>/dev/null)"
+say "VRAM after resume: $(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | head -1) MB"
+journalctl -k -b 0 --no-pager -o short-monotonic | awk '/PM: suspend entry/ {buf=""} {buf=buf $0 "\n"} END {printf "%s", buf}' \
+  | grep -iE 'suspend entry|freezing|nvidia|01:00|s2idle|suspend exit|took|error' | tail -40 >>"$LOG"
+
+# pm_trace scrambled the RTC; put the system clock back from NTP.
+systemctl restart systemd-timesyncd
+sleep 5  # timesyncd also writes the RTC back once synced
+say "clock re-synced: $(date)"
+say "log: $LOG"
