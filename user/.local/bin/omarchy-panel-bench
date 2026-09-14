@@ -1,0 +1,53 @@
+#!/bin/bash
+# Record eDP-1 at 165 fps while opening kevin.hub N times, then score how the
+# fade actually reached the screen.
+# Usage: omarchy-panel-bench [shell_dir] [label] [opens]
+#
+# EDP-1 MUST SHOW A STATIC SCENE. Every other change on that screen counts as
+# "panel": a run with the EasyEffects window up (its meters animate constantly)
+# reported first pixels at +2 ms and 800 ms fades on a patch with no fade at all.
+# Switch eDP-1 to an empty workspace first.
+#
+# Absolute latencies include ~50 ms of `qs ipc` start-up; compare runs against
+# each other, not against a click.
+SHELL_DIR=${1:-/usr/share/omarchy/shell}; LABEL=${2:-run}; N=${3:-5}
+OUT=~/.local/state/omarchy-panel-patch/bench-$LABEL; rm -rf "$OUT"; mkdir -p "$OUT"
+qs -p "$SHELL_DIR" ipc call kevin.hub hide >/dev/null 2>&1; sleep 1
+gpu-screen-recorder -w eDP-1 -f 165 -fm content -k h264 -q very_high -cursor no \
+  -write-first-frame-ts yes -c mp4 -o "$OUT/rec.mp4" >"$OUT/rec.log" 2>&1 &
+REC=$!; sleep 2
+for i in $(seq 1 "$N"); do
+  echo "open $(date +%s.%N)" >>"$OUT/eventos.txt"
+  qs -p "$SHELL_DIR" ipc call kevin.hub tab calendar >/dev/null 2>&1
+  sleep 1.3
+  qs -p "$SHELL_DIR" ipc call kevin.hub hide >/dev/null 2>&1
+  sleep 1.3
+done
+kill -INT $REC; wait $REC 2>/dev/null
+ffprobe -v error -select_streams v:0 -show_entries frame=pts_time -of csv=p=0 "$OUT/rec.mp4" | sed 's/,$//' >"$OUT/pts.txt"
+ffmpeg -v error -i "$OUT/rec.mp4" -fps_mode passthrough -vf "scale=160:90,format=gray" -f rawvideo - >"$OUT/frames.gray" 2>/dev/null
+python3 - "$OUT" "$LABEL" <<'PY'
+import sys, numpy as np
+out,label=sys.argv[1],sys.argv[2]
+f=np.fromfile(f"{out}/frames.gray",dtype=np.uint8).reshape(-1,90,160).astype(np.float32)
+pts=np.loadtxt(f"{out}/pts.txt"); n=min(len(f),len(pts)); f,pts=f[:n],pts[:n]
+t0=int(open(f"{out}/rec.mp4.ts").read().split()[-1])/1e6
+opens=[float(l.split()[1])-t0 for l in open(f"{out}/eventos.txt") if l.startswith("open")]
+rows=[]
+for k,t in enumerate(opens):
+    i0=np.searchsorted(pts,t)
+    ref=np.median(f[max(0,i0-25):i0],axis=0)          # closed state right before this open
+    seg=np.abs(f[i0:i0+170]-ref).mean(axis=(1,2)); full=np.percentile(seg,99)
+    if full<1: print(f"  abertura {k+1}: painel nao detectado"); continue
+    op=seg/full*100
+    vis=int(np.argmax(op>3)); done=int(np.argmax(op>97))
+    fade=op[vis:done+1]
+    rep=int((np.abs(np.diff(fade))<1.0).sum())
+    jump=float(np.diff(fade).max()) if len(fade)>1 else 0
+    gaps=np.diff(pts[i0+vis:i0+done+1])*1000
+    rows.append((pts[i0+vis]-t, op[vis], done-vis, (pts[i0+done]-pts[i0+vis])*1000, rep, jump, gaps.max() if len(gaps) else 0))
+    print(f"  abertura {k+1}: 1o pixel +{(pts[i0+vis]-t)*1000:4.0f} ms | comeca em {op[vis]:3.0f}% | fade {done-vis:2d} quadros/{(pts[i0+done]-pts[i0+vis])*1000:4.0f} ms | repetidos {rep:2d} | maior salto {jump:3.0f}% | pior intervalo {rows[-1][6]:.1f} ms")
+if rows:
+    a=np.array(rows)
+    print(f"[{label}] mediana: 1o pixel +{np.median(a[:,0])*1000:.0f} ms | comeca em {np.median(a[:,1]):.0f}% | fade {np.median(a[:,2]):.0f} quadros / {np.median(a[:,3]):.0f} ms | repetidos {np.median(a[:,4]):.0f} | maior salto {np.median(a[:,5]):.0f}%")
+PY
