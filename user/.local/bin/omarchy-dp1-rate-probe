@@ -1,0 +1,23 @@
+#!/bin/bash
+# Play 120 fps content fullscreen on DP-1 and report the rate DP-1 actually
+# presents at, from two independent sources: mpv's estimated display fps and
+# Hyprland's own debug overlay (read off eDP-1, where the overlay draws).
+# Usage: dp1-rate-probe <label>
+B=~/.local/state/omarchy-gpu-ab; SOCK=$B/mpv-probe.sock; V=$B/test-1080p120.mp4; LABEL=${1:-probe}
+FOCO=$(hyprctl activeworkspace -j | jq -r .id); ODP=$(hyprctl monitors -j | jq -r '.[]|select(.name=="DP-1")|.activeWorkspace.id')
+hyprctl dispatch 'hl.dsp.focus({ monitor = "DP-1" })' >/dev/null 2>&1; hyprctl dispatch 'hl.dsp.focus({ workspace = "5" })' >/dev/null 2>&1
+rm -f $SOCK
+hyprctl dispatch "hl.dsp.exec_cmd(\"mpv --title=dp1-rate-probe --fs --loop=inf --no-audio --hwdec=no --vo=gpu-next --video-sync=display-resample --input-ipc-server=$SOCK $V\")" >/dev/null 2>&1
+for i in $(seq 1 40); do A=$(hyprctl clients -j | jq -r '.[]|select(.title=="dp1-rate-probe")|.address'|head -1); [ -n "$A" ] && break; sleep 0.25; done
+hyprctl dispatch "hl.dsp.window.move({ workspace = \"5\", follow = false, window = \"address:$A\" })" >/dev/null 2>&1
+sleep 5
+mon=$(hyprctl clients -j | jq -r --arg a "$A" '.[]|select(.address==$a)|.monitor'); dp=$(hyprctl monitors -j | jq '.[]|select(.name=="DP-1")|.id')
+hyprctl eval 'hl.config({ debug = { overlay = true } })' >/dev/null 2>&1; sleep 6
+grim -o eDP-1 -l 0 $B/probe-$LABEL.png 2>/dev/null
+hyprctl eval 'hl.config({ debug = { overlay = false } })' >/dev/null 2>&1
+fps=$(printf '{"command":["get_property","estimated-display-fps"]}\n' | socat - $SOCK 2>/dev/null | jq -r .data)
+drop=$(printf '{"command":["get_property","vo-drop-frame-count"]}\n' | socat - $SOCK 2>/dev/null | jq -r .data)
+printf '{"command":["quit"]}\n' | socat - $SOCK >/dev/null 2>&1; sleep 1
+hyprctl dispatch "hl.dsp.focus({ workspace = \"$ODP\" })" >/dev/null 2>&1; hyprctl dispatch "hl.dsp.focus({ workspace = \"$FOCO\" })" >/dev/null 2>&1
+magick $B/probe-$LABEL.png -crop 330x120+0+270 +repage $B/probe-$LABEL-dp1.png 2>/dev/null
+echo "[$LABEL] mpv on DP-1: $([[ $mon == $dp ]] && echo yes || echo NO) | mpv display fps ${fps:0:6} | vo drops $drop | overlay crop: $B/probe-$LABEL-dp1.png"
