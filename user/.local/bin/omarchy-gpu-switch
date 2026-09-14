@@ -42,7 +42,7 @@ if [[ "${MODE_ARG,,}" == "nvidia" ]]; then
     if [[ ! -e /dev/dri/gpu-nvidia || ! -e /dev/dri/gpu-amd ]]; then
         echo "Missing /dev/dri/gpu-nvidia or /dev/dri/gpu-amd -- install the udev rule first:"
         echo "  sudo install -Dm644 ~/dotfiles/system/etc/udev/rules.d/61-dri-stable-names.rules /etc/udev/rules.d/"
-        echo "  sudo udevadm trigger -c add -s drm"
+        echo "  sudo udevadm trigger -c add -s drm && sudo udevadm settle"
         sleep 3; exit 1
     fi
     if [[ "$(render_pref)" == "nvidia" ]]; then
