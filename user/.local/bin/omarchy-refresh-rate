@@ -6,17 +6,45 @@
 #   omarchy-refresh-rate --list    list the rates available at this resolution
 #   omarchy-refresh-rate --state   JSON {"current":165,"available":[165,60]}
 #   omarchy-refresh-rate 60        switch to the mode with that rate
+#   omarchy-refresh-rate --sync    re-align a fast rate with this session's render
+#                                  mode (165 hybrid, 120 NVIDIA); 60 is left alone
+#
+# The rate is also WRITTEN INTO THE HYPRMONCFG PROFILES. hyprmoncfgd polls the
+# monitors every few seconds and re-applies the best profile whenever anything
+# differs from it, so a rate set only through hyprctl was undone within ~3 s --
+# checked 2026-09-14: 60 Hz went back to 165 by itself. That silently defeated
+# the battery switch in omarchy-power-manager and this script's menu entries.
+# Keeping the panel's rate in every profile makes hyprmoncfgd enforce the rate
+# we chose instead of fighting it.
 #
 # Rates are compared rounded, so the menu can say "60" while the panel really
-# runs at 60.012 Hz. The current resolution and scale are read back from
-# Hyprland and re-sent unchanged, so switching the rate never resizes anything.
+# runs at 60.012 Hz. The current resolution, position and scale are read back
+# from Hyprland and re-sent unchanged, so switching the rate never moves or
+# resizes anything.
+#
+# NVIDIA render sessions: the panel's fast rate is 120 Hz, not 165. In that mode
+# every eDP-1 frame is copied NVIDIA -> AMD through the CPU (aquamarine cannot
+# share a buffer between the two GPUs that way; hyprwm/aquamarine#408). Measured
+# 2026-09-14 with fullscreen video: 165 Hz delivered 162/165 frames, jitter
+# 0.13, Hyprland ~54% of a core; 120 Hz delivered 119.2/119.8, jitter 0.06-0.08,
+# ~44%. The panel's EDID only lists 165 and 60, so 120 is a CVT reduced-blanking
+# modeline (`cvt -r 1920 1080 120`), checked visually clean on this panel. In
+# those sessions a request for 165 is served as 120, which keeps the AC power
+# event (omarchy-power-manager asks for 165) and the menu working unchanged.
 
 import json
+import os
 import re
 import subprocess
 import sys
 
 MONITOR = "eDP-1"
+PROFILES_DIR = os.path.expanduser("~/.config/hyprmoncfg/profiles")
+RENDER_STATE = os.path.expanduser("~/.local/state/omarchy/gpu-render-active")
+NVIDIA_FAST_RATE = 120
+NVIDIA_FAST_MODELINE = {
+    "1920x1080": "modeline 285.25 1920 1968 2000 2080 1080 1083 1088 1144 +hsync -vsync",
+}
 
 
 def hypr(*args):
@@ -32,14 +60,87 @@ def monitor():
     sys.exit(f"monitor not found: {MONITOR}")
 
 
+def nvidia_session():
+    try:
+        with open(RENDER_STATE) as f:
+            return f.readline().split()[:1] == ["nvidia"]
+    except OSError:
+        return False
+
+
 def rates_at_current_resolution(m):
+    """Map rounded rate -> the mode string to send to hl.monitor()."""
     res = f'{m["width"]}x{m["height"]}'
     found = {}
     for mode in m.get("availableModes", []):
         parsed = re.fullmatch(r"(\d+x\d+)@([\d.]+)Hz", mode)
         if parsed and parsed.group(1) == res:
-            found[round(float(parsed.group(2)))] = mode
+            found[round(float(parsed.group(2)))] = mode.removesuffix("Hz")
+    if nvidia_session() and res in NVIDIA_FAST_MODELINE:
+        fastest = max(found, default=0)
+        if fastest > NVIDIA_FAST_RATE:
+            del found[fastest]
+        found[NVIDIA_FAST_RATE] = NVIDIA_FAST_MODELINE[res]
     return found
+
+
+def mode_refresh(mode):
+    """Refresh rate a mode string produces, as hyprmoncfg stores it."""
+    if mode.startswith("modeline "):
+        f = mode.split()
+        pclk, htotal, vtotal = float(f[1]), int(f[5]), int(f[9])
+        return round(pclk * 1e6 / (htotal * vtotal), 3)
+    rate = float(mode.split("@", 1)[1].removesuffix("Hz"))
+    return int(rate) if rate.is_integer() else rate
+
+
+def write_profiles(mode):
+    """Store the panel's mode in every hyprmoncfg profile that includes it.
+
+    hyprmoncfg passes a profile's "mode" string to hl.monitor() verbatim, so a
+    modeline works there, and it checks the applied rate against "refresh"
+    within 0.2 Hz. Files are rewritten only when they change, with the same
+    2-space JSON layout hyprmoncfg writes.
+    """
+    refresh = mode_refresh(mode)
+    if not mode.startswith("modeline "):
+        mode += "Hz"  # the spelling hyprmoncfg itself saves
+    try:
+        names = sorted(os.listdir(PROFILES_DIR))
+    except OSError:
+        return
+    for name in names:
+        if not name.endswith(".json"):
+            continue
+        path = os.path.join(PROFILES_DIR, name)
+        with open(path) as f:
+            data = json.load(f)
+        changed = False
+        for out in data.get("outputs", []):
+            if out.get("name") == MONITOR and (out.get("mode"), out.get("refresh")) != (mode, refresh):
+                out["mode"], out["refresh"] = mode, refresh
+                changed = True
+        if changed:
+            tmp = path + ".tmp"
+            with open(tmp, "w") as f:
+                f.write(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+            os.replace(tmp, path)
+
+
+def set_mode(m, mode, label):
+    write_profiles(mode)
+    # Omarchy configures Hyprland in Lua, and `hyprctl keyword` refuses to touch
+    # a non-legacy parser -- while still exiting 0. `eval` with hl.monitor() is
+    # the path that works; it answers "ok", so check that, not the exit code.
+    # This makes the change immediate; hyprmoncfgd's next poll then re-applies
+    # the profile, which now carries the same mode.
+    reply = hypr(
+        "eval",
+        f'hl.monitor({{ output = "{MONITOR}", mode = "{mode}", '
+        f'position = "{m["x"]}x{m["y"]}", scale = {m["scale"]} }})',
+    ).strip()
+    if reply != "ok":
+        sys.exit(f"failed to set {label}: {reply}")
 
 
 def main():
@@ -68,29 +169,32 @@ def main():
         )
         return
 
+    if args[0] == "--sync":
+        current = round(m["refreshRate"])
+        if current < 100:
+            return
+        available = rates_at_current_resolution(m)
+        fast = max(available)
+        if current != fast:
+            set_mode(m, available[fast], f"{fast} Hz")
+        else:
+            # Live rate already right; still make sure the profiles agree.
+            write_profiles(available[fast])
+        return
+
     try:
         wanted = int(args[0])
     except ValueError:
         sys.exit(__doc__ or "usage: omarchy-refresh-rate [--list|<rate>]")
 
     available = rates_at_current_resolution(m)
+    if wanted not in available and nvidia_session() and wanted > NVIDIA_FAST_RATE:
+        wanted = NVIDIA_FAST_RATE
     if wanted not in available:
         offer = ", ".join(str(r) for r in sorted(available, reverse=True))
         sys.exit(f"no mode at {wanted} Hz (available: {offer})")
 
-    mode = available[wanted].removesuffix("Hz")
-
-    # Omarchy configures Hyprland in Lua, and `hyprctl keyword` refuses to touch
-    # a non-legacy parser -- while still exiting 0. `eval` with hl.monitor() is
-    # the path that works; it answers "ok", so check that, not the exit code.
-    reply = hypr(
-        "eval",
-        f'hl.monitor({{ output = "{MONITOR}", mode = "{mode}", '
-        f'position = "auto", scale = {m["scale"]} }})',
-    ).strip()
-
-    if reply != "ok":
-        sys.exit(f"failed to set {wanted} Hz: {reply}")
+    set_mode(m, available[wanted], f"{wanted} Hz")
 
 
 main()

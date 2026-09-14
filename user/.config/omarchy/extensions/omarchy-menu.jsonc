@@ -31,8 +31,9 @@
   // Refresh rate for the internal panel. Lives under Hardware, next to the
   // other Display entries. The udev rules still force 165Hz on AC and 60Hz on
   // battery, so a manual pick here holds only until the next plug/unplug.
-  "trigger.hardware.refresh-rate": {"icon":"󰑐","label":"Refresh Rate","aliases":["refresh-rate","hz","refresh"],"description":"Switch the internal display between 165Hz and 60Hz","when":"omarchy-hw-laptop"},
-  "trigger.hardware.refresh-rate.165": {"icon":"󰓅","label":"165 Hz","description":"Smooth","checked":"[[ \"$(omarchy-refresh-rate)\" == \"165\" ]]","action":"omarchy-refresh-rate 165"},
+  "trigger.hardware.refresh-rate": {"icon":"󰑐","label":"Refresh Rate","aliases":["refresh-rate","hz","refresh"],"description":"Switch the internal display between its fast rate (165 Hz, 120 Hz in NVIDIA render sessions) and 60 Hz","when":"omarchy-hw-laptop"},
+  "trigger.hardware.refresh-rate.165": {"icon":"󰓅","label":"165 Hz","description":"Smooth","when":"! grep -qs '^nvidia' ~/.local/state/omarchy/gpu-render-active","checked":"[[ \"$(omarchy-refresh-rate)\" == \"165\" ]]","action":"omarchy-refresh-rate 165"},
+  "trigger.hardware.refresh-rate.120": {"icon":"󰓅","label":"120 Hz","description":"Fast rate in NVIDIA render sessions (every frame is copied through the CPU)","when":"grep -qs '^nvidia' ~/.local/state/omarchy/gpu-render-active","checked":"[[ \"$(omarchy-refresh-rate)\" == \"120\" ]]","action":"omarchy-refresh-rate 120"},
   "trigger.hardware.refresh-rate.60": {"icon":"󰾆","label":"60 Hz","description":"Saves battery","checked":"[[ \"$(omarchy-refresh-rate)\" == \"60\" ]]","action":"omarchy-refresh-rate 60"},
 
   // Modo gráfico do supergfxd. Substitui o menu "menus:gpuswitcher" do walker,

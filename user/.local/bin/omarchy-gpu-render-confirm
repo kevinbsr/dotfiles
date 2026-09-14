@@ -36,6 +36,12 @@ rm -f "$S/gpu-render-pending"
 # now 8192 MB (/etc/modprobe.d/nvidia-rtd3.conf), and a suspend in this mode with
 # 670 MB of VRAM resumed cleanly.
 
+# The internal panel's fast rate depends on the render mode (165 hybrid, 120
+# NVIDIA; see omarchy-refresh-rate), and the hyprmoncfg profiles carry whichever
+# the previous session left there. Re-align both the live rate and the profiles.
+# A 60 Hz battery setting is left as it is.
+/home/kevin/.local/bin/omarchy-refresh-rate --sync 2>/dev/null || true
+
 if [[ -f $S/gpu-render-reverted ]]; then
   when=$(cat "$S/gpu-render-reverted")
   notify-send -u critical -i dialog-warning "GPU render mode reverted to hybrid" \
