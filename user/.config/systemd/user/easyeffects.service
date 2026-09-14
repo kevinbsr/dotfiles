@@ -15,7 +15,13 @@ Documentation=https://github.com/wwmm/easyeffects
 # An autostart .desktop runs once at login and has no opinion about crashes.
 # systemd does, which is the whole point of moving it here.
 
-After=pipewire.service pipewire-pulse.service wireplumber.service
+# graphical-session.target too, not just PartOf it. Wanted by that target
+# alone, the unit was started in the same second as Hyprland, before
+# WAYLAND_DISPLAY reached the user manager: Qt fell back to xcb, could not load
+# it, and the process died ("no Qt platform plugin could be initialized").
+# Restart=on-failure recovered it 5 s later (seen 2026-09-14), but the first
+# start should not be a crash.
+After=pipewire.service pipewire-pulse.service wireplumber.service graphical-session.target
 Wants=pipewire.service
 PartOf=graphical-session.target
 
