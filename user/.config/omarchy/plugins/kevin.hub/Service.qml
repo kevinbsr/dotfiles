@@ -19,6 +19,23 @@ Item {
   // thread per tab change, on all monitors at once. This service is a single
   // instance, so a property here reaches every panel without touching disk.
   property string currentTab: ""
+
+  // ONE weather source for every monitor. It used to live in Panel.qml, and
+  // there is one Panel per monitor, so three sources ran side by side: measured
+  // at shell start-up, 6 wttr.in and 3 open-meteo requests for a single
+  // forecast, and three refresh timers after that.
+  //
+  // The source reads two settings (`unit`, `refreshMinutes`) through a panel's
+  // setting(). Every panel carries the same kevin.hub entry, so any one of them
+  // will do: panels claim `settingsHub` as they arrive and let go when they are
+  // destroyed (a monitor unplugged), and the next one takes over.
+  property var settingsHub: null
+  readonly property alias weather: weatherSource
+
+  WeatherSource {
+    id: weatherSource
+    hub: root.settingsHub
+  }
   property string preferredPlayerKey: ""
   property var playerStartedAt: ({})
   property var pendingTrackOsd: null

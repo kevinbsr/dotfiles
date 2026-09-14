@@ -58,15 +58,22 @@ Panel {
     { id: "nearby", label: "Nearby", icon: "󰀂", source: "NearbyTab.qml", minWidth: Style.space(400) }
   ]
 
-  // Weather's data layer sits out here rather than inside WeatherTab.qml
-  // because the bar icon shows the condition whether or not the page has
-  // ever been opened, and pages load on first visit. BarWidget.qml reads it
-  // back through this panel.
-  readonly property alias weather: weatherSource
+  // Weather's data layer lives in the hub service, shared by every monitor's
+  // panel (it used to be one WeatherSource per panel -- three fetchers for one
+  // forecast). Still exposed here because WeatherTab.qml and BarWidget.qml read
+  // it through the panel, and the bar icon needs it whether or not the weather
+  // page has ever been opened.
+  readonly property var weather: hubService ? hubService.weather : null
 
-  WeatherSource {
-    id: weatherSource
-    hub: root
+  // Lend this panel's settings to the shared source if nobody is yet.
+  function claimWeatherSettings() {
+    if (!hubService || hubService.settingsHub) return
+    if (!settings || Object.keys(settings).length === 0) return
+    hubService.settingsHub = root
+  }
+  onHubServiceChanged: claimWeatherSettings()
+  Component.onDestruction: {
+    if (hubService && hubService.settingsHub === root) hubService.settingsHub = null
   }
 
   // One width for every tab, taken from the widest, so switching pages moves
@@ -140,6 +147,8 @@ Panel {
       var next = root.indexOfTab(root.hubService.currentTab)
       if (next !== root.currentIndex) root.currentIndex = next
     }
+    // The panel lending settings went away; the next one steps in.
+    function onSettingsHubChanged() { root.claimWeatherSettings() }
   }
 
   // Remember the tab across restarts without paying for it mid-interaction.
@@ -290,7 +299,10 @@ Panel {
     page.contentY = page.contentHeight - page.height
   }
 
-  onSettingsChanged: syncTab()
+  onSettingsChanged: {
+    syncTab()
+    claimWeatherSettings()
+  }
 
   onCurrentIndexChanged: Qt.callLater(function() {
     root.activeTabItem = root.pageAt(root.currentIndex)
