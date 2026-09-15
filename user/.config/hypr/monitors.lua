@@ -75,14 +75,20 @@ local function dp1_max_hz()
   -- The card index follows the BIOS graphics mode: DP-1 is card0-DP-1 in hybrid
   -- (NVIDIA probes before the AMD) and card1-DP-1 in discrete (simpledrm takes
   -- card0). A hardcoded card0 silently read nothing in discrete mode.
-  local f
+  -- The ASUS may also be on HDMI-A-1 (HDMI 2.1 test, 2026-09-15), so find the
+  -- connector whose EDID names it instead of assuming DP-1.
+  local d
   for n = 0, 9 do
-    f = io.open("/sys/class/drm/card" .. n .. "-DP-1/edid", "rb")
-    if f then break end
+    for _, conn in ipairs({ "DP-1", "HDMI-A-1" }) do
+      local f = io.open("/sys/class/drm/card" .. n .. "-" .. conn .. "/edid", "rb")
+      if f then
+        local e = f:read("*a")
+        f:close()
+        if e and e:find("VG34WQML5A", 1, true) then d = e end
+      end
+    end
+    if d then break end
   end
-  if not f then return nil end
-  local d = f:read("*a")
-  f:close()
   if not d or #d < 128 then return nil end
   -- Os quatro descritores do bloco 0 comecam em 54/72/90/108 (base 0),
   -- que em Lua (base 1) sao 55/73/91/109.
@@ -136,8 +142,12 @@ end
 -- imagem. Deixar escrito evita que alguem "conserte" isto para cm = "edid"
 -- achando que resolve a saturacao: com o clamp por hardware ligado, resolve o
 -- oposto. Testado em 2026-09-03.
+-- Matched by description, not connector: the ASUS can be on DP-1 or on HDMI-A-1.
+-- A connector-name rule for HDMI-A-1 (meant for the LG) was applied to the ASUS
+-- when it moved to HDMI and fought hyprmoncfgd's profile after a resume (monitor
+-- flapping between 1600x900 and its real mode, 2026-09-15).
 hl.monitor({
-  output = "DP-1",
+  output = "desc:ASUSTek COMPUTER INC VG34WQML5A W2LMDW002227",
   mode = dp1_mode,
   position = "900x80",
   scale = 1,
@@ -148,7 +158,7 @@ hl.monitor({
 -- LG E2011 antigo, agora na VERTICAL. transform = 1 e 90 graus anti-horario
 -- (se um dia girar para o outro lado, o valor e 3). Rotacionado, 1600x900
 -- vira 900x1600 logico.
-hl.monitor({ output = "HDMI-A-1", mode = "1600x900@60", position = "0x0", scale = 1, transform = 1 })
+hl.monitor({ output = "desc:LG Electronics E2011 SerialNumber", mode = "1600x900@60", position = "0x0", scale = 1, transform = 1 })
 
 -- VRR fica DESLIGADO de proposito. O painel e VA e "respira": muda de brilho
 -- quando a taxa cai com a tela parada. Testado em 2026-09-03 -- com vrr = 1 a
