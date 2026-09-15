@@ -1,0 +1,8 @@
+[net]
+# Fetch git dependencies with the git CLI instead of cargo's built-in libgit2.
+# ~/.config/git/config rewrites https://github.com/ to git@github.com: (SSH),
+# and libgit2 cannot authenticate over SSH, so any crate with a GitHub git
+# dependency failed to build -- fastpotify 0.8.0 from the AUR, 2026-09-15
+# ("failed to authenticate when downloading repository: git@github.com:crmne/
+# librespot"). The git CLI uses the SSH key like every other git command.
+git-fetch-with-cli = true
