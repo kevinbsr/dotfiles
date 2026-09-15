@@ -1,0 +1,80 @@
+--- a/usr/share/omarchy/shell/plugins/bar/Bar.qml	2026-09-13 16:11:08.000000000 -0300
++++ b/usr/share/omarchy/shell/plugins/bar/Bar.qml	2026-09-15 06:04:55.836732251 -0300
+@@ -53,6 +53,11 @@
+   property bool requestedTransparent: false
+   property bool useTransparentForeground: false
+   property bool transparent: false
++  // Local change (kevin, 2026-09-15): monitors that get no bar, from
++  // shell.json bar.hideOnMonitors (connector names or model substrings, e.g.
++  // "E2011"). Each bar builds every widget again, synchronously, so a third
++  // monitor adds about a third to the time before the wallpaper can draw.
++  property var hiddenScreens: []
+   property bool centerSectionHovered: false
+   // One bar surface exists per monitor and each reports into this count, so a
+   // pointer crossing from one monitor's bar to another's stays counted however
+@@ -583,6 +588,8 @@
+ 
+     position = normalizePosition(config.position)
+     setRequestedTransparency(config.transparent === true)
++    var hidden = Array.isArray(config.hideOnMonitors) ? config.hideOnMonitors.map(String) : []
++    if (JSON.stringify(hidden) !== JSON.stringify(hiddenScreens)) hiddenScreens = hidden
+     centerAnchor = Util.canonicalWidgetId(config.centerAnchor || "")
+ 
+     // layoutEntries feeds plain JS arrays to the module Repeaters, and QML
+@@ -1193,8 +1200,19 @@
+     }
+   }
+ 
++  function screenHasBar(screen) {
++    if (!screen) return false
++    var name = String(screen.name || "")
++    var model = String(screen.model || "")
++    for (var i = 0; i < hiddenScreens.length; i++) {
++      var h = hiddenScreens[i]
++      if (h && (h === name || model.indexOf(h) !== -1)) return false
++    }
++    return true
++  }
++
+   Variants {
+-    model: Quickshell.screens
++    model: Quickshell.screens.filter(function(screen) { return root.screenHasBar(screen) })
+ 
+     delegate: Component {
+       BarPanel {
+@@ -1837,6 +1855,11 @@
+ 
+     Loader {
+       id: componentLoader
++      // Local change (kevin, 2026-09-15): build widgets asynchronously. Built
++      // synchronously, ~24 widgets on 3 bars held the QML thread for ~5 s at
++      // startup, and nothing else drew meanwhile -- the wallpaper came up 5-7 s
++      // after the bar (measured with qmlprofiler and socket2 layer events).
++      asynchronous: true
+       active: !slot.qmlCustom && !slot.registered
+       sourceComponent: slot.commandCustom ? customCommandModuleComponent : emptyModuleComponent
+       anchors.fill: parent
+@@ -1849,6 +1872,11 @@
+ 
+     Loader {
+       id: registryLoader
++      // Local change (kevin, 2026-09-15): build widgets asynchronously. Built
++      // synchronously, ~24 widgets on 3 bars held the QML thread for ~5 s at
++      // startup, and nothing else drew meanwhile -- the wallpaper came up 5-7 s
++      // after the bar (measured with qmlprofiler and socket2 layer events).
++      asynchronous: true
+       active: slot.registered
+       sourceComponent: slot.registered ? slot.registryComponent : null
+       anchors.fill: parent
+@@ -1861,6 +1889,11 @@
+ 
+     Loader {
+       id: qmlLoader
++      // Local change (kevin, 2026-09-15): build widgets asynchronously. Built
++      // synchronously, ~24 widgets on 3 bars held the QML thread for ~5 s at
++      // startup, and nothing else drew meanwhile -- the wallpaper came up 5-7 s
++      // after the bar (measured with qmlprofiler and socket2 layer events).
++      asynchronous: true
+       active: slot.qmlCustom
+       source: slot.qmlCustom ? root.customModuleSource(slot.entry) : ""
+       anchors.fill: parent

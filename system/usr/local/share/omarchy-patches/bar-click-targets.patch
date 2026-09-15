@@ -1,0 +1,46 @@
+--- a/usr/share/omarchy/shell/plugins/bar/Bar.qml	2026-09-15 06:07:17.141924667 -0300
++++ b/usr/share/omarchy/shell/plugins/bar/Bar.qml	2026-09-15 06:11:01.830206021 -0300
+@@ -205,6 +205,27 @@
+     return out
+   }
+ 
++  function syncAllPluginClickTargets() {
++    // Same result and order as pluginClickTargets(), for all plugins at once.
++    var byPlugin = ({})
++    for (var i = 0; i < clickTargets.length; i++) {
++      var record = pluginObjectRecord(clickTargets[i])
++      if (!record) continue
++      var key = String(record.pluginId || "")
++      if (!byPlugin[key]) byPlugin[key] = []
++      byPlugin[key].push(clickTargets[i])
++    }
++    for (var id in pluginBarApis) {
++      var api = pluginBarApis[id]
++      if (!api) continue
++      var next = byPlugin[String(api.pluginId || "")] || []
++      var current = api.clickTargets || []
++      var same = current.length === next.length
++      for (var j = 0; same && j < next.length; j++) same = current[j] === next[j]
++      if (!same) api.clickTargets = next
++    }
++  }
++
+   function syncAllPluginBarApiObjects() {
+     for (var id in pluginBarApis) root.syncPluginBarApiObjects(pluginBarApis[id])
+   }
+@@ -319,7 +340,14 @@
+   }
+ 
+   onActivePopoutChanged: syncAllPluginBarApiObjects()
+-  onClickTargetsChanged: syncAllPluginBarApiObjects()
++  // Local change (kevin, 2026-09-15): every WidgetButton registers a click
++  // target when it gets its bar, and each registration used to re-sync EVERY
++  // plugin's bar API -- including a fresh JSON copy of the whole layout, which
++  // re-evaluates bindings in every third-party widget. ~70 buttons on 3 bars
++  // made each one cost ~100 ms at startup (qmlprofiler). Registrations in the
++  // same event-loop turn now collapse into one pass that only hands each
++  // plugin its own click targets, and only when they changed.
++  onClickTargetsChanged: Qt.callLater(syncAllPluginClickTargets)
+   onLayoutConfigChanged: syncAllPluginBarApiObjects()
+   onModuleSlotsChanged: Qt.callLater(prunePluginBarApis)
+ 
