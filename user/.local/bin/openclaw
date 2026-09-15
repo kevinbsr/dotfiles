@@ -1,0 +1,17 @@
+#!/bin/sh
+# openclaw CLI on mise's Node 24, the same runtime as the gateway service.
+#
+# /usr/bin/openclaw (package-owned) runs `node` from PATH, which here is the
+# system Node 22 (nodejs-lts-jod is pinned on purpose, see the gateway drop-in
+# ~/.config/systemd/user/openclaw-gateway.service.d/10-node24.conf). openclaw
+# 2026.9.x refuses anything below 24.16, so every CLI call failed at once --
+# including `openclaw dashboard --json` inside omarchy-launch-openclaw, which then
+# concluded the gateway was down and exited: the app grid entry did nothing
+# (2026-09-15). ~/.local/bin comes before /usr/bin on the desktop's PATH.
+export SHARP_IGNORE_GLOBAL_LIBVIPS=1
+NODE_DIR="$HOME/.local/share/mise/installs/node/24/bin"
+if [ -x "$NODE_DIR/node" ]; then
+  PATH="$NODE_DIR:$PATH"
+  export PATH
+fi
+exec node /usr/lib/node_modules/openclaw/openclaw.mjs "$@"
