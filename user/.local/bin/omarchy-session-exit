@@ -1,0 +1,39 @@
+#!/bin/bash
+# omarchy:summary=Save the open apps for the next login, then log out, reboot or shut down
+#
+# Usage: omarchy-session-exit logout|reboot|shutdown
+#
+# WHY
+# The Session Restore plugin (io.github.dreed47.session-restore) reopens a
+# pinned session at login and is meant to refresh that pin on logout through a
+# Hyprland exec-shutdown hook. On this system that hook never exists:
+#   - the plugin registers it with `hyprctl keyword`, which Hyprland's Lua config
+#     refuses ("keyword can't work with non-legacy parsers") while exiting 0, so
+#     the plugin believes it worked (checked 2026-09-15);
+#   - even if it ran, omarchy-system-logout/reboot/shutdown close every window
+#     BEFORE the compositor exits, so it would save an empty desktop.
+# So the pin is saved here, while the windows are still open, and only then
+# are Omarchy's own scripts run. If the plugin ever fixes its hook, check that
+# it does not overwrite the pin with the empty post-close state.
+#
+# Wired into the Logout/Reboot/Shutdown menu entries and omarchy-gpu-switch by
+# absolute path: the shell's PATH puts /usr/share/omarchy/bin first, so a
+# same-name override in ~/.local/bin would be skipped. `omarchy logout` typed
+# in a terminal still goes straight to Omarchy's script and does not save.
+set -uo pipefail
+
+action=${1:-}
+case $action in
+  logout | reboot | shutdown) ;;
+  *) echo "usage: omarchy-session-exit logout|reboot|shutdown" >&2; exit 2 ;;
+esac
+
+CLI="$HOME/.config/omarchy/plugins/io.github.dreed47.session-restore/bin/session-restore"
+
+# Never let a slow or broken save block leaving the session.
+if [[ -f $CLI ]] && command -v node >/dev/null; then
+  timeout 15 node "$CLI" save --boot >/dev/null 2>&1 ||
+    notify-send -a "Session Restore" "Session not saved" "Continuing with $action anyway." 2>/dev/null
+fi
+
+exec /usr/bin/omarchy-system-"$action"

@@ -56,7 +56,7 @@ if [[ "${MODE_ARG,,}" == "nvidia" ]]; then
         mkdir -p "$(dirname "$RENDER_FILE")"
         echo nvidia >"$RENDER_FILE"
         sleep 1
-        omarchy-system-logout
+        /home/kevin/.local/bin/omarchy-session-exit logout
     else
         echo "Cancelled."; sleep 1
     fi
@@ -78,7 +78,7 @@ if [[ "$MODE" == "Hybrid" && "$CURRENT" == "Hybrid" && "$(render_pref)" == "nvid
     if gum confirm "Stop rendering on NVIDIA (back to the iGPU) and log out now?"; then
         echo hybrid >"$RENDER_FILE"
         sleep 1
-        omarchy-system-logout
+        /home/kevin/.local/bin/omarchy-session-exit logout
     else
         echo "Cancelled."; sleep 1
     fi
@@ -120,7 +120,7 @@ if gum confirm "Switch to $MODE and $ACTION now?"; then
         if sudo /usr/local/bin/supergfxd-set-mode "$MODE" --restart; then
             echo "GPU modules loaded. Logging out..."
             sleep 2
-            omarchy-system-logout
+            /home/kevin/.local/bin/omarchy-session-exit logout
         else
             echo "Error: Failed to update GPU mode."
             echo "Press any key to exit..."
@@ -131,7 +131,7 @@ if gum confirm "Switch to $MODE and $ACTION now?"; then
         if sudo /usr/local/bin/supergfxd-set-mode "$MODE"; then
             echo "Config updated. Rebooting..."
             sleep 2
-            omarchy-system-reboot
+            /home/kevin/.local/bin/omarchy-session-exit reboot
         else
             echo "Error: Failed to update GPU mode."
             echo "Press any key to exit..."
