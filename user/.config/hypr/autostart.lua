@@ -80,4 +80,12 @@ for _, event in ipairs({ "window.open", "window.destroy", "window.move_to_worksp
     hl.exec_cmd("/home/kevin/.local/bin/gui-session changed")
   end)
 end
+-- Web apps also on title changes, so the snapshot knows which page they show.
+-- Only web app classes (<browser>-<host>__<path>-<profile>): terminal titles
+-- change several times a second.
+hl.on("window.title", function(w)
+  if w and w.class and w.class:find("__", 1, true) then
+    hl.exec_cmd("/home/kevin/.local/bin/gui-session changed")
+  end
+end)
 o.exec_on_start("/home/kevin/.local/bin/gui-session restore")

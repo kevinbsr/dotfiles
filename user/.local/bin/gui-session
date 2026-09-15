@@ -21,7 +21,10 @@ WHAT COMES BACK
   - apps: relaunched from their desktop entry (found by window class), or from
     the original command line when there is none;
   - Omarchy web apps (class <browser>-<host>__<path>-<profile>): relaunched with
-    omarchy-launch-webapp, after the browser itself;
+    omarchy-launch-webapp, after the browser itself, on the page they were
+    showing -- found in the browser's History database by the window title
+    (the snapshot also refreshes when a web app's title changes); the app's
+    start URL when the title is not there;
   - the browser: launched once; its tabs are the browser's own business
     ("Continue where you left off");
   - each window goes back to its workspace (special ones included), floating
@@ -46,9 +49,11 @@ STATE_DIR = HOME / ".local/state/gui-session"
 SNAPSHOT = STATE_DIR / "windows.json"
 RUNTIME = Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")) / "gui-session"
 PENDING = RUNTIME / "pending"
+FIRST_PENDING = RUNTIME / "pending-since"
 RESTORING = RUNTIME / "restoring"
 
 EVENT_DELAY = 5  # longer than the 2 s Omarchy waits between closing windows and ending the session
+MAX_DEFER = 20  # a title that keeps changing must not postpone the snapshot forever
 RESTORING_MAX_AGE = 120
 PLACE_TIMEOUT = 40
 
@@ -134,15 +139,22 @@ def desktop_id_for(cls, entries):
 
 
 def webapp_url(match, entries):
+    """Start URL: the web app's desktop entry (same host and path, else same host
+    -- a web app reopened on a deeper page gets a class with that path), else
+    the URL rebuilt from the class."""
     host, path = match["host"], match["path"].replace("_", "/")
     wanted = f"{host}/{path}".rstrip("/")
+    same_host = None
     for e in entries.values():
         m = re.match(r"omarchy-launch-webapp\s+(\S+)", e["exec"])
         if m:
             url = m.group(1).strip("'\"")
-            if re.sub(r"^https?://", "", url).rstrip("/") == wanted:
+            bare = re.sub(r"^https?://", "", url).rstrip("/")
+            if bare == wanted:
                 return url
-    return f"https://{wanted}/"
+            if bare.split("/", 1)[0].lower() == host.lower():
+                same_host = same_host or url
+    return same_host or f"https://{wanted}/"
 
 
 # --- snapshot ---------------------------------------------------------------
@@ -206,12 +218,17 @@ def on_event():
     RUNTIME.mkdir(parents=True, exist_ok=True)
     token = str(time.time_ns())
     PENDING.write_text(token)
+    if not FIRST_PENDING.exists():
+        FIRST_PENDING.write_text(token)
     time.sleep(EVENT_DELAY)
     try:
-        if PENDING.read_text() != token:
-            return  # a later event will take the snapshot
+        latest = PENDING.read_text() == token
+        waited = time.time() - FIRST_PENDING.stat().st_mtime
     except OSError:
         return
+    if not latest and waited < MAX_DEFER:
+        return  # a later event will take the snapshot
+    FIRST_PENDING.unlink(missing_ok=True)
     if restoring():
         return
     reason = session_ending()
@@ -219,6 +236,70 @@ def on_event():
         log(f"snapshot skipped: {reason}")
         return
     take_snapshot()
+
+
+# --- web app pages ----------------------------------------------------------
+
+BROWSER_DIRS = {
+    "brave-origin": ".config/BraveSoftware/Brave-Origin",
+    "brave-browser": ".config/BraveSoftware/Brave-Browser",
+    "brave": ".config/BraveSoftware/Brave-Browser",
+    "chromium": ".config/chromium",
+    "google-chrome": ".config/google-chrome",
+    "microsoft-edge": ".config/microsoft-edge",
+    "vivaldi-stable": ".config/vivaldi",
+    "helium-browser": ".config/net.imput.helium",
+}
+
+
+def webapp_host(cls):
+    m = WEBAPP_CLASS.match(cls or "")
+    return m["host"].lower() if m else None
+
+
+def history_db(profile):
+    """Copy of the default browser's History database (it is locked while the
+    browser runs), with its journal so SQLite sees a consistent file."""
+    browser = subprocess.run(["xdg-settings", "get", "default-web-browser"],
+                             capture_output=True, text=True).stdout.strip().removesuffix(".desktop")
+    rel = BROWSER_DIRS.get(browser)
+    if not rel:
+        return None
+    src = HOME / rel / profile / "History"
+    if not src.exists():
+        return None
+    RUNTIME.mkdir(parents=True, exist_ok=True)
+    dst = RUNTIME / "History"
+    shutil.copyfile(src, dst)
+    journal = src.with_name("History-journal")
+    if journal.exists():
+        shutil.copyfile(journal, RUNTIME / "History-journal")
+    else:
+        (RUNTIME / "History-journal").unlink(missing_ok=True)
+    return dst
+
+
+def webapp_page(entry, start_url):
+    """URL of the page a web app window was showing, by its title."""
+    import sqlite3
+    m = WEBAPP_CLASS.match(entry["class"])
+    title = entry.get("title") or ""
+    if not m or not title:
+        return start_url
+    try:
+        db_path = history_db(m["profile"])
+        if not db_path:
+            return start_url
+        db = sqlite3.connect(db_path)
+        host = m["host"].lower()
+        for wanted in (title, title_key(title)):
+            rows = db.execute("SELECT url FROM urls WHERE title = ? ORDER BY last_visit_time DESC", (wanted,))
+            for (url,) in rows:
+                if re.match(rf"^https?://([^/]*\.)?{re.escape(host)}(/|$)", url):
+                    return url
+    except Exception as e:  # never let a history lookup break the restore
+        log(f"history lookup failed for {entry['class']}: {e}")
+    return start_url
 
 
 # --- restore ----------------------------------------------------------------
@@ -294,7 +375,9 @@ def _restore(saved):
             if c["address"] in used or (only_new_from is not None and c["address"] in only_new_from):
                 continue
             cls = c.get("class") or ""
-            candidates = [i for i in pending if saved[i]["class"] == cls]
+            host = webapp_host(cls)
+            candidates = [i for i in pending
+                          if saved[i]["class"] == cls or (host and webapp_host(saved[i]["class"]) == host)]
             if not candidates:
                 continue
             best = max(candidates, key=lambda i: difflib.SequenceMatcher(
@@ -307,18 +390,26 @@ def _restore(saved):
     assign(hypr_json("clients"))
     if not pending:
         return
-    open_classes = {c.get("class") for c in hypr_json("clients")}
+
+    def present_keys():
+        return {webapp_host(c.get("class")) or c.get("class") for c in hypr_json("clients")}
+
+    def key_of(i):
+        return webapp_host(saved[i]["class"]) or saved[i]["class"]
+
+    open_classes = present_keys()
 
     launched = set()
     webapps, browsers = [], []
     for i in pending:
         spec = saved[i]["launch"]
         key = json.dumps(spec, sort_keys=True)
-        if key in launched or saved[i]["class"] in open_classes:
+        if key in launched or key_of(i) in open_classes:
             continue
         launched.add(key)
         if spec["kind"] == "webapp":
-            webapps.append((i, spec))
+            # Look the page up before the browser starts and locks its history.
+            webapps.append((i, {"kind": "webapp", "value": webapp_page(saved[i], spec["value"])}))
         elif re.match(rf"^{BROWSER_PREFIX}$", saved[i]["class"]):
             browsers.append(spec)
         else:
@@ -334,9 +425,9 @@ def _restore(saved):
                 re.match(rf"^{BROWSER_PREFIX}$", c.get("class") or "") for c in hypr_json("clients")):
             time.sleep(0.3)
         time.sleep(3)
-    present = {c.get("class") for c in hypr_json("clients")}
+    present = present_keys()
     for i, spec in webapps:
-        if saved[i]["class"] not in present:
+        if key_of(i) not in present:
             launch(spec)
 
     deadline = time.time() + PLACE_TIMEOUT
