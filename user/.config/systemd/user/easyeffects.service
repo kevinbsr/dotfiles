@@ -32,6 +32,14 @@ Type=simple
 # it the binary opens the GUI.
 ExecStart=/usr/bin/easyeffects --gapplication-service
 
+# Start (and restart) only while a Wayland compositor is actually there. When
+# Hyprland crashed, EasyEffects exited on the lost display, Restart= brought it
+# back 5 s later with no compositor, and Qt aborted with a core dump ("Failed to
+# create wl_display", 2026-09-13 and 2026-09-15). A failed ExecCondition skips
+# the start cleanly instead; the next session's graphical-session.target starts
+# it again.
+ExecCondition=/bin/sh -c 'test -n "$WAYLAND_DISPLAY" && test -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY"'
+
 # The failure this unit is here to survive. RestartSec gives PipeWire time to
 # finish coming up first -- restarting into a socket that is not ready just
 # burns another crash.

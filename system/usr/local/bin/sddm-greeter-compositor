@@ -34,4 +34,10 @@ if [[ -n $nvidia_node && $amd_bound == 0 ]]; then
   export AQ_DRM_DEVICES=$nvidia_node
 fi
 
-exec /usr/bin/start-hyprland -- --config /usr/share/sddm/hyprland.lua
+# Local greeter config (stock config + Xwayland off), falling back to the stock
+# one if it is missing, so a broken install cannot leave a login screen without
+# a config.
+config=/usr/local/share/sddm/greeter-hyprland.lua
+[[ -r $config ]] || config=/usr/share/sddm/hyprland.lua
+
+exec /usr/bin/start-hyprland -- --config "$config"
