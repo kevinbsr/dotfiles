@@ -3,7 +3,7 @@
 
 pkgname=aquamarine
 pkgver=0.15.0
-pkgrel=2.1
+pkgrel=2.2
 pkgdesc='a very light linux rendering backend library'
 arch=(x86_64 aarch64)
 url="https://github.com/hyprwm/$pkgname"
@@ -33,14 +33,22 @@ _archive="$pkgname-$pkgver"
 # an unplugged monitor stays active in the kernel: on this G15 the NVIDIA card
 # then never runtime-suspends after undocking, and replugged outputs can stick
 # at 0x0. Drop this rebuild once an official release contains the fix.
+#
+# pkgrel 2.2 (2026-09-15) adds a fix for hyprwm/aquamarine#383: ~CDRMBackend
+# reset each connector while disconnecting the next, and disconnect() walks the
+# connector list -- Hyprland segfaulted on every logout with more than one
+# monitor (18 core dumps here since 2026-09-14). Local patch, not upstream yet.
 source=("$url/archive/v$pkgver/$_archive.tar.gz"
-        pr395-disable-kms-before-disconnect.patch)
+        pr395-disable-kms-before-disconnect.patch
+        issue383-exit-null-connector.patch)
 sha256sums=('bb5323f58cd2f379cb11c39893336e49980fe2e9fb101745addd87cebde3d13d'
-            '7d28fe76d81cf695085d4e6804abd00978a9d3dede0f29e7a86980d8cc63f270')
+            '7d28fe76d81cf695085d4e6804abd00978a9d3dede0f29e7a86980d8cc63f270'
+            '4e53ae2e2e16e38a4585eaa891c44a486954a9ece64c422a59cc5efaf4edaf14')
 
 prepare() {
 	cd "$_archive"
 	patch -Np1 -i ../pr395-disable-kms-before-disconnect.patch
+	patch -Np1 -i ../issue383-exit-null-connector.patch
 }
 
 build() {

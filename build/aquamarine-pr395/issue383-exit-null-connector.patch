@@ -1,0 +1,29 @@
+diff -ru a/src/backend/drm/DRM.cpp b/src/backend/drm/DRM.cpp
+--- a/src/backend/drm/DRM.cpp	2026-08-29 12:19:44.000000000 -0300
++++ b/src/backend/drm/DRM.cpp	2026-09-15 07:22:27.530935504 -0300
+@@ -382,10 +382,15 @@
+ Aquamarine::CDRMBackend::~CDRMBackend() {
+     stopCommitThread();
+ 
++    // Disconnect every connector before dropping any of them: disconnect()
++    // reaches flushAsyncCommitEvents(), which walks `connectors`, and resetting
++    // each slot inside this loop left null entries behind for the next
++    // iteration -- SIGSEGV on every exit with more than one output
++    // (hyprwm/aquamarine#383).
+     for (auto& conn : connectors) {
+         conn->disconnect();
+-        conn.reset();
+     }
++    connectors.clear();
+ 
+     if (rendererState.allocator)
+         rendererState.allocator->destroyBuffers();
+@@ -497,7 +502,7 @@
+ 
+ void Aquamarine::CDRMBackend::flushAsyncCommitEvents() {
+     for (const auto& connector : connectors) {
+-        if (connector->output && connector->output->asyncCommitEventPending)
++        if (connector && connector->output && connector->output->asyncCommitEventPending)
+             emitAsyncCommitEvent(connector->output);
+     }
+ }
