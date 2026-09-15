@@ -28,16 +28,6 @@
   // fields are kept unless overridden.
   // "about": {"icon":"","label":"About","action":"omarchy-launch-or-focus-tui \"zsh -c 'fastfetch; read -k 1'\""},
 
-  // Save the open apps before leaving. Omarchy's own scripts close every window
-  // first, so the Session Restore plugin's logout hook (broken here anyway) would
-  // save an empty desktop. omarchy-session-exit saves the pinned session, then
-  // runs the original script. Absolute path: the shell's PATH puts
-  // /usr/share/omarchy/bin ahead of ~/.local/bin. Icon and label are repeated
-  // because the shell fills missing fields with defaults before merging.
-  "system.logout": {"icon":"󰍃","label":"Logout","action":"/home/kevin/.local/bin/omarchy-session-exit logout"},
-  "system.reboot": {"icon":"󰜉","label":"Reboot","action":"/home/kevin/.local/bin/omarchy-session-exit reboot"},
-  "system.shutdown": {"icon":"󰐥","label":"Shutdown","action":"/home/kevin/.local/bin/omarchy-session-exit shutdown"},
-
   // Refresh rate for the internal panel. Lives under Hardware, next to the
   // other Display entries. The udev rules still force 165Hz on AC and 60Hz on
   // battery, so a manual pick here holds only until the next plug/unplug.
