@@ -1,0 +1,119 @@
+#!/usr/bin/env python3
+# omarchy:summary=Set the ASUS ultrawide's refresh rate for the current GPU render mode
+#
+# Usage:
+#   omarchy-asus-rate            print the rate this session wants (180 or 240)
+#   omarchy-asus-rate --sync     write it into every hyprmoncfg profile that has the
+#                                ASUS and apply it live if the monitor is connected
+#
+# WHY TWO RATES
+# The ASUS (VG34WQML5A) is wired to the NVIDIA card. In a hybrid session every
+# frame is rendered on the AMD and copied to the NVIDIA, and that copy takes a
+# bit more than 8.3 ms. Measured 2026-09-15 with fullscreen video:
+#   120 Hz -> 60 fps, steady (every frame waits 2 vblanks)
+#   180 Hz -> 89.8 fps, jitter 0.03-1.0 (the copy fits in 2 vblanks = 11.1 ms)
+#   240 Hz -> 88-94 fps, jitter 1.6-1.8 (2 or 3 vblanks, uneven pacing)
+# So hybrid sessions get 180 Hz: the same ~90 fps, evenly paced. In an NVIDIA
+# render session the card draws the ASUS directly and really delivers 240 Hz
+# (238.8 fps measured), so those sessions keep 240.
+#
+# Custom 90/80 Hz modelines are not an option: nvidia-drm rejects any mode the
+# EDID does not list (atomic commit EINVAL), and a stream of failed commits once
+# crashed Aquamarine.
+#
+# WHY THE PROFILES
+# hyprmoncfgd re-applies the best profile whenever the monitors differ from it,
+# so a rate set only through hyprctl is undone within seconds. The rate lives in
+# the profiles (setup = ASUS on DP-1, asus-hdmi = ASUS on HDMI-A-1); the live eval
+# just makes it immediate. Called at every login by omarchy-gpu-render-confirm.
+
+import json
+import os
+import pwd
+import subprocess
+import sys
+
+HOME = pwd.getpwuid(os.getuid()).pw_dir
+PROFILES_DIR = os.path.join(HOME, ".config/hyprmoncfg/profiles")
+RENDER_STATE = os.path.join(HOME, ".local/state/omarchy/gpu-render-active")
+ASUS_KEY = "asustek computer inc|vg34wqml5a|w2lmdw002227"
+ASUS_DESC = "desc:ASUSTek COMPUTER INC VG34WQML5A W2LMDW002227"
+# Mode strings as the EDID lists them (hyprmoncfg stores them with "Hz").
+MODES = {240: ("3440x1440@240.00Hz", 240), 180: ("3440x1440@179.98Hz", 179.98)}
+
+
+def wanted_rate():
+    try:
+        with open(RENDER_STATE) as f:
+            first = f.readline().split()[:1]
+    except OSError:
+        first = []
+    # "nvidia" = NVIDIA render session; "discrete" (BIOS MUX) also renders on the
+    # card that drives the ASUS, so it gets 240 too.
+    return 240 if first in (["nvidia"], ["discrete"]) else 180
+
+
+def hypr(*args):
+    return subprocess.run(["hyprctl", *args], capture_output=True, text=True).stdout
+
+
+def write_profiles(rate):
+    mode, refresh = MODES[rate]
+    changed = []
+    try:
+        names = sorted(os.listdir(PROFILES_DIR))
+    except OSError:
+        return changed
+    for name in names:
+        if not name.endswith(".json"):
+            continue
+        path = os.path.join(PROFILES_DIR, name)
+        with open(path) as f:
+            data = json.load(f)
+        dirty = False
+        for out in data.get("outputs", []):
+            if out.get("key") == ASUS_KEY and (out.get("mode"), out.get("refresh")) != (mode, refresh):
+                out["mode"], out["refresh"] = mode, refresh
+                dirty = True
+        if dirty:
+            tmp = path + ".tmp"
+            with open(tmp, "w") as f:
+                f.write(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+            os.replace(tmp, path)
+            changed.append(name)
+    return changed
+
+
+def apply_live(rate):
+    try:
+        monitors = json.loads(hypr("-j", "monitors") or "[]")
+    except json.JSONDecodeError:
+        return
+    for m in monitors:
+        if "VG34WQML5A" not in m.get("description", ""):
+            continue
+        if round(m["refreshRate"]) == rate:
+            return
+        depth = 10 if "2101010" in m.get("currentFormat", "") else 8
+        mode = MODES[rate][0].removesuffix("Hz")
+        hypr(
+            "eval",
+            f'hl.monitor({{ output = "{ASUS_DESC}", mode = "{mode}", '
+            f'position = "{m["x"]}x{m["y"]}", scale = {m["scale"]}, bitdepth = {depth}, cm = "srgb" }})',
+        )
+        return
+
+
+def main():
+    rate = wanted_rate()
+    if sys.argv[1:] == ["--sync"]:
+        changed = write_profiles(rate)
+        apply_live(rate)
+        print(f"ASUS rate {rate} Hz" + (f" (profiles updated: {', '.join(changed)})" if changed else ""))
+    elif not sys.argv[1:]:
+        print(rate)
+    else:
+        sys.exit("usage: omarchy-asus-rate [--sync]")
+
+
+main()

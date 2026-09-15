@@ -156,6 +156,13 @@ ciclo() {
 
 aguarda_hyprland
 
+# The high mode is whatever Hyprland is driving right now: 240 Hz in NVIDIA
+# sessions, 180 Hz in hybrid ones (omarchy-asus-rate). Cycling back to a fixed
+# 240 would fight the profile and flip the rate after every resume.
+case "$(taxa_hyprland)" in
+  120|180|240) ALTO=${ALTO/3440x1440@240/3440x1440@$(taxa_hyprland)} ;;
+esac
+
 # Probe before acting. The mode cycle is two modesets, so the screen blinks
 # twice every time it runs -- and most wakes do not need it. Asking the monitor
 # first over DDC costs about a second and leaves an already-healthy link alone.

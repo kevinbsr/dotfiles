@@ -42,6 +42,11 @@ rm -f "$S/gpu-render-pending"
 # A 60 Hz battery setting is left as it is.
 /home/kevin/.local/bin/omarchy-refresh-rate --sync 2>/dev/null || true
 
+# Same idea for the ASUS: 180 Hz in hybrid sessions (evenly paced ~90 fps through
+# the AMD -> NVIDIA copy), 240 Hz when the NVIDIA renders it directly. See the
+# script for the measurements.
+/home/kevin/.local/bin/omarchy-asus-rate --sync >/dev/null 2>&1 || true
+
 if [[ -f $S/gpu-render-reverted ]]; then
   when=$(cat "$S/gpu-render-reverted")
   notify-send -u critical -i dialog-warning "GPU render mode reverted to hybrid" \
