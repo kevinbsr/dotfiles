@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "id": "kevin.monitor",
   "name": "My Display",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "author": "Omarchy",
-  "description": "Brightness slider and laptop display controls",
+  "description": "Per-monitor display controls: brightness, contrast, scale, refresh rate, color preset, input and power",
   "kinds": [
     "bar-widget"
   ],
@@ -13,7 +13,7 @@
   },
   "barWidget": {
     "displayName": "My Display",
-    "description": "Brightness slider and laptop display controls",
+    "description": "Per-monitor display controls: brightness, contrast, scale, refresh rate, color preset, input and power",
     "category": "System",
     "allowMultiple": false
   },

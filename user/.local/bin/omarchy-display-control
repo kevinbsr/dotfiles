@@ -1,0 +1,407 @@
+#!/usr/bin/python3
+# omarchy:summary=State and per-monitor controls for the display panel (kevin.monitor)
+"""Per-monitor display controls, independent of which monitor has focus.
+
+Usage:
+  omarchy-display-control state
+  omarchy-display-control set <connector> brightness <1-100>
+  omarchy-display-control set <connector> contrast <0-100>
+  omarchy-display-control set <connector> input <hex VCP value, e.g. 0f>
+  omarchy-display-control set <connector> preset <hex VCP value, e.g. 0b>
+  omarchy-display-control set <connector> scale <scale>
+  omarchy-display-control set <connector> rate <hz>
+  omarchy-display-control set <connector> enabled <0|1>
+  omarchy-display-control set <connector> power <0|1>
+  omarchy-display-control set <connector> dpms <0|1>
+
+WHY
+The stock Omarchy panel acts on the focused monitor only. With no bar on the LG
+monitor (bar.hideOnMonitors), clicking any bar focuses another monitor, so the
+LG could not be controlled at all. Its display toggle also used `hyprctl
+keyword monitor`, which the Lua config refuses while exiting 0.
+
+HOW
+  - brightness: the backlight on the internal panel (brightnessctl), DDC/CI
+    VCP 0x10 on external monitors; contrast 0x12, color preset 0x14 and input
+    source 0x60 over DDC only. The I2C bus of each connector comes from
+    `ddcutil detect`; each monitor's capabilities (preset and input names) are
+    cached per monitor, since reading them takes seconds.
+  - scale, refresh rate and enable/disable go into the hyprmoncfg profile the
+    daemon recommends for the connected monitors, then `hyprmoncfg apply`.
+    Setting them live only would be undone by hyprmoncfgd within 5 s, and
+    applying through hyprmoncfg also rewrites hyprmoncfg-monitors.lua, so the
+    next login starts with the same values instead of blinking into them.
+    A scale change shifts the monitors to its right so the layout stays joined.
+  - the internal panel's refresh rate goes through omarchy-refresh-rate, which
+    knows the NVIDIA-session modeline. The ASUS returns to its render-mode rate
+    at the next login (omarchy-asus-rate --prepare).
+  - power turns a monitor's screen off through its own DDC power mode (VCP
+    0xD6, when the monitor lists it), without touching the layout. Hyprland's
+    per-monitor DPMS is kept as `dpms`, but any mouse movement or key press
+    wakes every monitor (misc:mouse_move_enables_dpms, which the idle lock
+    needs), so it cannot keep one screen off while the others are in use.
+"""
+
+import json
+import os
+import re
+import subprocess
+import sys
+import threading
+from pathlib import Path
+
+HOME = Path.home()
+PROFILES = HOME / ".config/hyprmoncfg/profiles"
+CACHE = Path(os.environ.get("XDG_CACHE_HOME", HOME / ".cache")) / "omarchy-display-control"
+INTERNAL = re.compile(r"^(eDP|LVDS|DSI)-")
+
+
+def run(cmd, timeout=15):
+    try:
+        # errors="replace": some monitors put non-UTF-8 bytes in their capability strings.
+        return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout)
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return subprocess.CompletedProcess(cmd, 1, "", "")
+
+
+def hypr_json(what):
+    try:
+        return json.loads(run(["hyprctl", "-j", what, "all"] if what == "monitors" else ["hyprctl", "-j", what]).stdout or "[]")
+    except json.JSONDecodeError:
+        return []
+
+
+def monitor_key(m):
+    return f'{m.get("make", "")}|{m.get("model", "")}|{m.get("serial", "")}'.lower()
+
+
+# --- DDC --------------------------------------------------------------------
+
+def ddc_buses():
+    """connector name (e.g. HDMI-A-1) -> I2C bus number."""
+    out = run(["ddcutil", "detect", "--terse"], timeout=20).stdout
+    buses, bus = {}, None
+    for line in out.splitlines():
+        m = re.search(r"I2C bus:\s*/dev/i2c-(\d+)", line)
+        if m:
+            bus = m.group(1)
+            continue
+        m = re.search(r"DRM connector:\s*card\d+-(\S+)", line)
+        if m and bus is not None:
+            buses.setdefault(m.group(1), bus)
+            bus = None
+    return buses
+
+
+def bus_for(connector):
+    cache = CACHE / "buses.json"
+    try:
+        buses = json.loads(cache.read_text())
+    except (OSError, ValueError):
+        buses = {}
+    if connector not in buses:
+        buses = ddc_buses()
+        CACHE.mkdir(parents=True, exist_ok=True)
+        cache.write_text(json.dumps(buses))
+    return buses.get(connector)
+
+
+def parse_vcp_values(caps, code):
+    """Named values of one VCP feature from `ddcutil capabilities`."""
+    values, inside = [], False
+    for line in caps.splitlines():
+        m = re.match(r"\s*Feature:\s*([0-9A-Fa-f]{2})\b", line)
+        if m:
+            inside = m.group(1).lower() == code
+            continue
+        if inside:
+            v = re.match(r"\s*([0-9a-fA-F]{2}):\s*(.+?)\s*$", line)
+            if v:
+                values.append({"value": v.group(1).lower(), "label": v.group(2)})
+    return values
+
+
+def capabilities(key, bus):
+    path = CACHE / ("caps-" + re.sub(r"[^a-z0-9]+", "_", key) + ".json")
+    try:
+        return json.loads(path.read_text())
+    except (OSError, ValueError):
+        pass
+    caps = run(["ddcutil", "--bus", bus, "capabilities"], timeout=30).stdout
+    if not caps:
+        return {"presets": [], "inputs": []}
+    data = {"presets": parse_vcp_values(caps, "14"), "inputs": parse_vcp_values(caps, "60"),
+            "power": parse_vcp_values(caps, "d6")}
+    CACHE.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data))
+    return data
+
+
+def ddc_state(key, bus):
+    out = run(["ddcutil", "--bus", bus, "getvcp", "10", "12", "14", "60", "D6", "--brief"], timeout=10).stdout
+    state = {}
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) >= 5 and parts[0] == "VCP" and parts[2] == "C":
+            state[parts[1].lower()] = {"value": int(parts[3]), "max": int(parts[4])}
+        elif len(parts) >= 4 and parts[0] == "VCP" and parts[2] == "SNC":
+            state[parts[1].lower()] = {"value": parts[3].lower().lstrip("x")}
+    if not state:
+        return None
+    caps = capabilities(key, bus)
+
+    def percent(code):
+        v = state.get(code)
+        return round(100 * v["value"] / v["max"]) if v and v.get("max") else None
+
+    def named(code):
+        v = state.get(code)
+        return v["value"] if v else None
+
+    return {
+        "brightness": percent("10"),
+        "contrast": percent("12"),
+        "preset": named("14"),
+        "presets": caps["presets"],
+        "input": named("60"),
+        "inputs": caps["inputs"],
+        # Power off needs the monitor to list the "DPM: Off" value (04).
+        "powerControl": any(v["value"] == "04" for v in caps.get("power", [])),
+        "powerOn": named("d6") in (None, "01"),
+    }
+
+
+# --- internal panel -----------------------------------------------------------
+
+def backlight_device():
+    out = run(["omarchy-hw-display"]).stdout.strip()
+    if out:
+        return out
+    dirs = sorted(Path("/sys/class/backlight").glob("*"))
+    return dirs[0].name if dirs else None
+
+
+def backlight_percent(device):
+    out = run(["brightnessctl", "-d", device, "-m"]).stdout.strip()
+    fields = out.split(",")
+    return int(fields[3].rstrip("%")) if len(fields) >= 4 and fields[3].rstrip("%").isdigit() else None
+
+
+# --- state ---------------------------------------------------------------------
+
+def rates_for(m):
+    res = f'{m["width"]}x{m["height"]}'
+    rates = set()
+    for mode in m.get("availableModes", []):
+        found = re.fullmatch(r"(\d+x\d+)@([\d.]+)Hz", mode)
+        if found and found.group(1) == res:
+            rates.add(round(float(found.group(2))))
+    return sorted(rates, reverse=True)
+
+
+def state():
+    monitors = hypr_json("monitors")
+    displays = []
+    threads = []
+    for m in monitors:
+        name = m["name"]
+        internal = bool(INTERNAL.match(name))
+        d = {
+            "name": name,
+            "description": m.get("description", ""),
+            "model": m.get("model", ""),
+            "label": (m.get("model") or name) if not internal else "Laptop",
+            "key": monitor_key(m),
+            "internal": internal,
+            "enabled": not m.get("disabled", False),
+            "dpms": bool(m.get("dpmsStatus", True)),
+            "focused": bool(m.get("focused")),
+            "width": m.get("width", 0),
+            "height": m.get("height", 0),
+            "scale": m.get("scale", 1),
+            "refreshRate": round(m.get("refreshRate", 0)),
+            "rates": rates_for(m),
+            "brightness": None, "contrast": None,
+            "preset": None, "presets": [], "input": None, "inputs": [],
+            "powerControl": False, "powerOn": True,
+        }
+        displays.append(d)
+        if internal:
+            if d["enabled"]:
+                rs = run(["omarchy-refresh-rate", "--state"]).stdout
+                try:
+                    parsed = json.loads(rs)
+                    d["refreshRate"], d["rates"] = parsed.get("current", d["refreshRate"]), parsed.get("available", d["rates"])
+                except ValueError:
+                    pass
+            dev = backlight_device()
+            if dev:
+                d["brightness"] = backlight_percent(dev)
+        elif d["enabled"] and d["dpms"]:
+            def fill(d=d):
+                bus = bus_for(d["name"])
+                info = ddc_state(d["key"], bus) if bus else None
+                if info:
+                    d.update(info)
+            t = threading.Thread(target=fill)
+            t.start()
+            threads.append(t)
+    for t in threads:
+        t.join(timeout=12)
+    focused = next((d["name"] for d in displays if d["focused"]), displays[0]["name"] if displays else "")
+    return {"focused": focused, "displays": displays}
+
+
+# --- profile changes ----------------------------------------------------------------
+
+def recommended_profile():
+    out = run(["hyprmoncfg", "status"]).stdout
+    m = re.search(r"Recommended profile:\s*(\S+)", out)
+    return m.group(1) if m else None
+
+
+def mode_size(mode, fallback_w, fallback_h):
+    if mode.startswith("modeline "):
+        f = mode.split()
+        return int(f[2]), int(f[6])
+    m = re.match(r"(\d+)x(\d+)", mode)
+    return (int(m.group(1)), int(m.group(2))) if m else (fallback_w, fallback_h)
+
+
+def logical_width(out):
+    w, h = mode_size(out.get("mode", ""), out.get("width", 0), out.get("height", 0))
+    if int(out.get("transform", 0)) % 2 == 1:
+        w, h = h, w
+    return w / float(out.get("scale") or 1)
+
+
+def change_profile(connector, mutate):
+    monitors = {m["name"]: m for m in hypr_json("monitors")}
+    mon = monitors.get(connector)
+    if not mon:
+        sys.exit(f"no monitor {connector}")
+    name = recommended_profile()
+    if not name:
+        sys.exit("hyprmoncfg has no recommended profile for these monitors")
+    path = PROFILES / f"{name}.json"
+    data = json.loads(path.read_text())
+    key = monitor_key(mon)
+    target = next((o for o in data.get("outputs", []) if o.get("key") == key), None)
+    if not target:
+        sys.exit(f"profile {name} has no output {key}")
+    mutate(data, target, mon)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+    os.replace(tmp, path)
+    result = run(["hyprmoncfg", "apply", name, "--confirm-timeout", "0"], timeout=30)
+    if result.returncode:
+        sys.exit(f"hyprmoncfg apply {name} failed: {result.stderr.strip() or result.stdout.strip()}")
+
+
+def set_scale(connector, value):
+    scale = float(value)
+
+    def mutate(data, target, mon):
+        old_w = logical_width(target)
+        old_right = target.get("x", 0) + old_w
+        target["scale"] = int(scale) if scale.is_integer() else scale
+        delta = logical_width(target) - old_w
+        for o in data.get("outputs", []):
+            if o is not target and o.get("x", 0) >= old_right - 1:
+                o["x"] = int(round(o["x"] + delta))
+
+    change_profile(connector, mutate)
+
+
+def set_rate(connector, value):
+    hz = int(round(float(value)))
+    if INTERNAL.match(connector):
+        result = run(["omarchy-refresh-rate", str(hz)], timeout=30)
+        if result.returncode:
+            sys.exit(result.stderr.strip() or "omarchy-refresh-rate failed")
+        return
+
+    def mutate(data, target, mon):
+        res = f'{mon["width"]}x{mon["height"]}'
+        best = None
+        for mode in mon.get("availableModes", []):
+            found = re.fullmatch(r"(\d+x\d+)@([\d.]+)Hz", mode)
+            if found and found.group(1) == res and round(float(found.group(2))) == hz:
+                best = mode
+                break
+        if not best:
+            sys.exit(f"{connector} has no {hz} Hz mode at {res}")
+        rate = float(best.split("@", 1)[1].removesuffix("Hz"))
+        target["mode"] = best
+        target["refresh"] = int(rate) if rate.is_integer() else rate
+
+    change_profile(connector, mutate)
+
+
+def set_enabled(connector, value):
+    enable = value in ("1", "true", "on")
+    if not enable:
+        enabled = [m for m in hypr_json("monitors") if not m.get("disabled")]
+        if len(enabled) <= 1:
+            sys.exit("refusing to disable the last enabled monitor")
+
+    def mutate(data, target, mon):
+        target["enabled"] = enable
+
+    change_profile(connector, mutate)
+
+
+def set_dpms(connector, value):
+    action = "enable" if value in ("1", "true", "on") else "disable"
+    run(["hyprctl", "dispatch", f'hl.dsp.dpms({{ action = "{action}", monitor = "{connector}" }})'])
+
+
+def set_ddc(connector, code, value):
+    bus = bus_for(connector)
+    if not bus:
+        sys.exit(f"no DDC bus for {connector}")
+    result = run(["ddcutil", "--bus", bus, "--noverify", "setvcp", code, value], timeout=10)
+    if result.returncode:
+        # The bus numbers can change after a hotplug: detect again once.
+        (CACHE / "buses.json").unlink(missing_ok=True)
+        bus = bus_for(connector)
+        if bus:
+            run(["ddcutil", "--bus", bus, "--noverify", "setvcp", code, value], timeout=10)
+
+
+def set_brightness(connector, value):
+    pct = max(1, min(100, int(round(float(value)))))
+    if INTERNAL.match(connector):
+        dev = backlight_device()
+        if dev:
+            run(["brightnessctl", "-d", dev, "set", f"{pct}%"])
+        return
+    set_ddc(connector, "10", str(pct))
+
+
+def main():
+    args = sys.argv[1:]
+    if args == ["state"]:
+        print(json.dumps(state()))
+        return
+    if len(args) == 4 and args[0] == "set":
+        _, connector, what, value = args
+        actions = {
+            "brightness": lambda: set_brightness(connector, value),
+            "contrast": lambda: set_ddc(connector, "12", str(max(0, min(100, int(round(float(value))))))),
+            "input": lambda: set_ddc(connector, "60", "0x" + value.lower().removeprefix("0x")),
+            "preset": lambda: set_ddc(connector, "14", "0x" + value.lower().removeprefix("0x")),
+            "scale": lambda: set_scale(connector, value),
+            "rate": lambda: set_rate(connector, value),
+            "enabled": lambda: set_enabled(connector, value),
+            "dpms": lambda: set_dpms(connector, value),
+            "power": lambda: set_ddc(connector, "D6", "0x01" if value in ("1", "true", "on") else "0x04"),
+        }
+        if what in actions:
+            actions[what]()
+            return
+    sys.exit(__doc__)
+
+
+if __name__ == "__main__":
+    main()
