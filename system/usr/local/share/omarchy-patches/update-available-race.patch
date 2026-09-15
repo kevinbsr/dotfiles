@@ -1,0 +1,31 @@
+--- a/usr/bin/omarchy-update-available	2026-09-15 20:20:04.218505122 -0300
++++ b/usr/bin/omarchy-update-available	2026-09-15 20:20:04.245791029 -0300
+@@ -4,6 +4,28 @@
+ 
+ set -euo pipefail
+ 
++# Local change (kevin, 2026-09-15): serialize concurrent runs and cache the
++# result briefly. One bar per monitor means the bar widget starts one of these
++# per monitor at the same instant, and `checkupdates` shares a single temporary
++# database per user: the loser of that race prints "Cannot fetch updates" and
++# exits 1, which the widget reads as "no updates", so the icon is missing on
++# that monitor until the next six-hour check.
++if [[ -z ${OMARCHY_UPDATE_AVAILABLE_INNER:-} ]]; then
++  cache="${XDG_RUNTIME_DIR:-/tmp}/omarchy-update-available.$UID"
++  exec {lockfd}>"$cache.lock"
++  flock "$lockfd"
++  if [[ -f $cache.rc ]] && (($(date +%s) - $(stat -c %Y "$cache.rc") < 60)); then
++    [[ -f $cache.out ]] && cat "$cache.out"
++    exit "$(cat "$cache.rc")"
++  fi
++  rc=0
++  OMARCHY_UPDATE_AVAILABLE_INNER=1 "$0" "$@" >"$cache.out.new" || rc=$?
++  mv "$cache.out.new" "$cache.out"
++  printf '%s\n' "$rc" >"$cache.rc"
++  cat "$cache.out"
++  exit "$rc"
++fi
++
+ updates=()
+ 
+ if [[ $OMARCHY_PATH != "/usr/share/omarchy" ]]; then

@@ -1,0 +1,28 @@
+--- a/usr/share/omarchy/shell/plugins/bar/Bar.qml	2026-09-15 19:28:29.491637386 -0300
++++ b/usr/share/omarchy/shell/plugins/bar/Bar.qml	2026-09-15 19:28:29.526579687 -0300
+@@ -1840,6 +1840,16 @@
+     readonly property string customType: root.customModuleType(entry)
+     readonly property var registryMetadata: root.barWidgetRegistry.metadataFor(root.canonicalWidgetId(moduleName))
+     readonly property bool firstParty: registryMetadata && registryMetadata.firstParty === true
++    // Local change (kevin, 2026-09-15): the local tray fork keeps the host bar
++    // it had before the PluginBarApi facade. Dragging widgets into its drawer
++    // needs the bar's drag state and config writes, which the facade does not
++    // expose (TyRichards/omarchy-tray#9). Trusted by id AND source directory:
++    // kevin.tray has no git remote, so nothing updates this code behind the
++    // user's back. The fork gives the widgets it hosts their own facades.
++    readonly property bool trustedLocalPlugin: !!registryMetadata && !firstParty
++      && registryMetadata.pluginId === "kevin.tray"
++      && String(registryMetadata.sourceDir || "").replace(/\/+$/, "")
++        === Quickshell.env("HOME") + "/.config/omarchy/plugins/kevin.tray"
+     readonly property string pluginApiId: registered ? root.canonicalWidgetId(moduleName) : "bar-entry:" + moduleName
+     // Re-evaluate when the registry mutates (Component reference changes,
+     // plugin enabled/disabled, etc.). Reading the `widgets` property creates
+@@ -2074,7 +2084,7 @@
+     function injectProps() {
+       var target = activeItem
+       if (!target) return
+-      if ("bar" in target) target.bar = firstParty
++      if ("bar" in target) target.bar = firstParty || trustedLocalPlugin
+         ? root : root.pluginBarApiFor(pluginApiId, moduleName, registered)
+       if ("moduleName" in target) target.moduleName = moduleName
+       if ("settings" in target) target.settings = moduleSettings
