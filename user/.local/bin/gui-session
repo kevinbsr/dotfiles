@@ -289,27 +289,53 @@ def history_db(profile):
     return dst
 
 
-def webapp_page(entry, start_url):
-    """URL of the page a web app window was showing, by its title."""
+def history_url(profile, title, host=None):
+    """Most recent History URL whose page title is `title` (also ignoring a
+    "(N) " notification counter, which changes between visits), optionally on
+    `host`. None when nothing matches."""
     import sqlite3
-    m = WEBAPP_CLASS.match(entry["class"])
-    title = entry.get("title") or ""
-    if not m or not title:
-        return start_url
+    if not title:
+        return None
     try:
-        db_path = history_db(m["profile"])
+        db_path = history_db(profile)
         if not db_path:
-            return start_url
+            return None
         db = sqlite3.connect(db_path)
-        host = m["host"].lower()
-        for wanted in (title, title_key(title)):
-            rows = db.execute("SELECT url FROM urls WHERE title = ? ORDER BY last_visit_time DESC", (wanted,))
-            for (url,) in rows:
-                if re.match(rf"^https?://([^/]*\.)?{re.escape(host)}(/|$)", url):
+        key = title_key(title)
+        queries = [("SELECT url FROM urls WHERE title = ? ORDER BY last_visit_time DESC", (title,)),
+                   ("SELECT url FROM urls WHERE title = ? ORDER BY last_visit_time DESC", (key,))]
+        if key:
+            like = key.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            queries.append(("SELECT url FROM urls WHERE title LIKE ? ESCAPE '\\' ORDER BY last_visit_time DESC",
+                            ("%" + like,)))
+        for sql, args in queries:
+            for (url,) in db.execute(sql, args):
+                if host is None or re.match(rf"^https?://([^/]*\.)?{re.escape(host)}(/|$)", url):
                     return url
     except Exception as e:  # never let a history lookup break the restore
-        log(f"history lookup failed for {entry['class']}: {e}")
-    return start_url
+        log(f"history lookup failed for {title[:40]!r}: {e}")
+    return None
+
+
+def webapp_page(entry, start_url):
+    """URL of the page a web app window was showing, by its title."""
+    m = WEBAPP_CLASS.match(entry["class"])
+    if not m:
+        return start_url
+    return history_url(m["profile"], entry.get("title") or "", m["host"].lower()) or start_url
+
+
+def browser_title_key(title):
+    """A browser window title without the " - Brave Origin" style suffix."""
+    return re.sub(r"\s+-\s+[^-]+$", "", title_key(title or ""))
+
+
+def browser_command(desktop_id):
+    """The executable of a browser's desktop entry, e.g. brave-origin."""
+    for e in desktop_entries().items():
+        if e[0] == desktop_id and e[1]["exec"]:
+            return shlex.split(e[1]["exec"])[0]
+    return None
 
 
 # --- restore ----------------------------------------------------------------
@@ -467,12 +493,32 @@ def _restore(saved):
 
     # Keep watching until nothing is pending and nothing has changed for a while:
     # slow apps replace their splash window well after the first one maps.
+    # Browser windows the browser's own session restore did not bring back.
+    # Brave on Wayland does not always record a window made by dragging a tab
+    # out of another: the session file never contains it, so it cannot come back
+    # by itself (2026-09-15, a YouTube live on the LG monitor). Once the browser
+    # has gone quiet, reopen each missing window on its page, found in History by
+    # the window title, and let settle() place it.
+    reopened_missing = False
+
     deadline = time.time() + PLACE_TIMEOUT
     while time.time() < deadline:
         if settle(hypr_json("clients")):
             last_change = time.time()
         elif not pending and time.time() - last_change >= QUIET_PERIOD:
             break
+        elif (not reopened_missing and time.time() - last_change >= QUIET_PERIOD
+              and any(re.match(rf"^{BROWSER_PREFIX}$", saved[i]["class"]) for i in pending)):
+            reopened_missing = True
+            for i in [i for i in pending if re.match(rf"^{BROWSER_PREFIX}$", saved[i]["class"])]:
+                exe = browser_command(saved[i]["launch"]["value"]) if saved[i]["launch"]["kind"] == "desktop" else None
+                url = history_url("Default", browser_title_key(saved[i]["title"]))
+                if exe and url:
+                    launch({"kind": "argv", "value": [exe, "--new-window", url]})
+                else:
+                    log(f"cannot reopen browser window {saved[i]['title'][:40]!r}: no page found")
+            last_change = time.time()
+            deadline = max(deadline, time.time() + 20)
         time.sleep(0.3)
     for i in pending:
         log(f"no window showed up for {saved[i]['class']} ({saved[i]['title'][:40]})")
