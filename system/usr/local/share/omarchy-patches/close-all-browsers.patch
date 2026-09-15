@@ -1,0 +1,34 @@
+--- a/usr/bin/omarchy-hyprland-window-close-all	2026-09-13 16:11:08.000000000 -0300
++++ b/usr/bin/omarchy-hyprland-window-close-all	2026-09-15 06:50:40.307497296 -0300
+@@ -2,6 +2,31 @@
+ 
+ # omarchy:summary=Close all open windows
+ 
++# Local change (kevin, 2026-09-15): quit Chromium-based browsers as a whole
++# before closing windows. Closed one window at a time, the browser records each
++# close as the user's and its session keeps only the last window; then uwsm stop
++# kills it mid-exit (Brave dumped core and came back "Crashed", showing a New Tab
++# and a restore prompt). SIGTERM is Chromium's clean quit: exit_type SessionEnded
++# and every window restored on the next start, in ~0.4 s. The wait is capped
++# well under the 2 s the logout/reboot/shutdown scripts leave before ending the
++# session.
++browser_pids=$(hyprctl clients -j | jq -r '.[].pid' | sort -u | while read -r pid; do
++  case $(basename "$(readlink "/proc/$pid/exe" 2>/dev/null)") in
++    brave | chrome | chromium | msedge | vivaldi-bin | helium | opera) ;;
++    *) continue ;;
++  esac
++  tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null | grep -q -- '--type=' || echo "$pid"
++done)
++if [[ -n $browser_pids ]]; then
++  kill -TERM $browser_pids 2>/dev/null
++  for _ in {1..15}; do
++    alive=0
++    for pid in $browser_pids; do kill -0 "$pid" 2>/dev/null && alive=1; done
++    ((alive)) || break
++    sleep 0.1
++  done
++fi
++
+ hyprctl clients -j | \
+   jq -r ".[].address" | \
+   while read -r addr; do

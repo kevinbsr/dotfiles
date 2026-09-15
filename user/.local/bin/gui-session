@@ -25,8 +25,10 @@ WHAT COMES BACK
     showing -- found in the browser's History database by the window title
     (the snapshot also refreshes when a web app's title changes); the app's
     start URL when the title is not there;
-  - the browser: launched once; its tabs are the browser's own business
-    ("Continue where you left off");
+  - the browser: launched once; its windows and tabs are the browser's own
+    session restore ("Continue where you left off"). That only brings back more
+    than one window because the close-all-browsers patch quits it with SIGTERM
+    before Omarchy closes windows one by one;
   - each window goes back to its workspace (special ones included), floating
     windows with their size and position.
 Terminal windows are left to tmux-terminal. Nothing restores an app's internal
