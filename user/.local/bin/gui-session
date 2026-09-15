@@ -1,0 +1,365 @@
+#!/usr/bin/python3
+# omarchy:summary=Keep a list of the open GUI apps and reopen them at the next login
+"""Reopen the desktop's GUI apps after a logout, reboot or crash.
+
+Usage:
+  gui-session changed    Hyprland window event: refresh the snapshot in 5 s
+  gui-session snapshot   write the snapshot now
+  gui-session restore    at login: relaunch the saved apps and put each window back
+  gui-session show       print the saved snapshot
+
+WHY A RUNNING SNAPSHOT
+Omarchy's logout/reboot/shutdown scripts close every window before the session
+ends, so anything that saves "at logout" sees an empty desktop (and Hyprland's
+exec-shutdown can't be registered from the Lua config anyway). Instead the list
+is rewritten after every window open/close/move, 5 s after the last event, and
+never while the session is ending -- the same checks tmux-terminal uses. So the
+file always describes the desktop as it was just before any exit: menu, `omarchy
+logout` in a terminal, the GPU mode switch, or a crash.
+
+WHAT COMES BACK
+  - apps: relaunched from their desktop entry (found by window class), or from
+    the original command line when there is none;
+  - Omarchy web apps (class <browser>-<host>__<path>-<profile>): relaunched with
+    omarchy-launch-webapp, after the browser itself;
+  - the browser: launched once; its tabs are the browser's own business
+    ("Continue where you left off");
+  - each window goes back to its workspace (special ones included), floating
+    windows with their size and position.
+Terminal windows are left to tmux-terminal. Nothing restores an app's internal
+state or the tiled split arrangement.
+"""
+
+import difflib
+import json
+import os
+import re
+import shlex
+import shutil
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+HOME = Path.home()
+STATE_DIR = HOME / ".local/state/gui-session"
+SNAPSHOT = STATE_DIR / "windows.json"
+RUNTIME = Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")) / "gui-session"
+PENDING = RUNTIME / "pending"
+RESTORING = RUNTIME / "restoring"
+
+EVENT_DELAY = 5  # longer than the 2 s Omarchy waits between closing windows and ending the session
+RESTORING_MAX_AGE = 120
+PLACE_TIMEOUT = 40
+
+TERMINALS = {"foot", "footclient", "org.codeberg.dnkl.foot", "Alacritty", "kitty",
+             "com.mitchellh.ghostty", "org.wezfurlong.wezterm"}
+SKIP_CLASS = re.compile(r"^(org\.omarchy\.|TUI\.|org\.quickshell|xdg-desktop-portal|"
+                        r"hyprland-share-picker|polkit|gui-session-probe$)")
+BROWSER_PREFIX = r"(?:brave|brave-origin|chromium|chrome|google-chrome|microsoft-edge|vivaldi|opera|helium)"
+WEBAPP_CLASS = re.compile(rf"^{BROWSER_PREFIX}-(?P<host>[A-Za-z0-9.-]+\.[A-Za-z]{{2,}})__(?P<path>[^-]*)-(?P<profile>[^-]+)$")
+ENDING_PROCS = r"^(/usr)?(/bin/)?bash [^ ]*/omarchy-system-(logout|reboot|shutdown)( |$)|(^|[ /])uwsm stop$"
+
+
+def log(msg):
+    subprocess.run(["logger", "-t", "gui-session", "--", msg], check=False)
+
+
+def hypr_json(what):
+    out = subprocess.run(["hyprctl", "-j", what], capture_output=True, text=True).stdout
+    return json.loads(out or "[]")
+
+
+def dispatch(expr):
+    subprocess.run(["hyprctl", "dispatch", expr], capture_output=True, check=False)
+
+
+def session_ending():
+    if subprocess.run(["pgrep", "-f", ENDING_PROCS], capture_output=True).returncode == 0:
+        return "logout/reboot/shutdown in progress"
+    state = subprocess.run(["systemctl", "is-system-running"], capture_output=True, text=True).stdout.strip()
+    if state == "stopping":
+        return "system is stopping"
+    if subprocess.run(["systemctl", "--user", "is-active", "--quiet", "graphical-session.target"]).returncode:
+        return "graphical session is ending"
+    try:
+        hypr_json("version")
+    except (json.JSONDecodeError, OSError):
+        return "Hyprland is not answering"
+    return None
+
+
+# --- desktop entries --------------------------------------------------------
+
+def desktop_dirs():
+    dirs = [Path(os.environ.get("XDG_DATA_HOME", HOME / ".local/share"))]
+    dirs += [Path(d) for d in os.environ.get("XDG_DATA_DIRS", "/usr/local/share:/usr/share").split(":") if d]
+    return [d / "applications" for d in dirs]
+
+
+def desktop_entries():
+    """id -> {'wmclass', 'exec'}; earlier directories win, as in XDG lookup."""
+    entries = {}
+    for d in desktop_dirs():
+        if not d.is_dir():
+            continue
+        for f in d.glob("*.desktop"):
+            if f.name in entries:
+                continue
+            wmclass = execline = None
+            in_main = False
+            try:
+                for line in f.read_text(errors="replace").splitlines():
+                    if line.startswith("["):
+                        in_main = line.strip() == "[Desktop Entry]"
+                    elif in_main and line.startswith("StartupWMClass="):
+                        wmclass = line.split("=", 1)[1].strip()
+                    elif in_main and line.startswith("Exec=") and execline is None:
+                        execline = line.split("=", 1)[1].strip()
+            except OSError:
+                continue
+            entries[f.name] = {"wmclass": wmclass, "exec": execline or ""}
+    return entries
+
+
+def desktop_id_for(cls, entries):
+    low = cls.lower()
+    for name, e in entries.items():
+        if e["wmclass"] and e["wmclass"].lower() == low:
+            return name
+    for name in entries:
+        if name[:-len(".desktop")].lower() == low:
+            return name
+    return None
+
+
+def webapp_url(match, entries):
+    host, path = match["host"], match["path"].replace("_", "/")
+    wanted = f"{host}/{path}".rstrip("/")
+    for e in entries.values():
+        m = re.match(r"omarchy-launch-webapp\s+(\S+)", e["exec"])
+        if m:
+            url = m.group(1).strip("'\"")
+            if re.sub(r"^https?://", "", url).rstrip("/") == wanted:
+                return url
+    return f"https://{wanted}/"
+
+
+# --- snapshot ---------------------------------------------------------------
+
+def cmdline(pid):
+    try:
+        raw = Path(f"/proc/{pid}/cmdline").read_bytes()
+    except OSError:
+        return []
+    return [a.decode(errors="replace") for a in raw.split(b"\0") if a]
+
+
+def launch_spec(client, entries):
+    cls = client["class"]
+    m = WEBAPP_CLASS.match(cls)
+    if m:
+        return {"kind": "webapp", "value": webapp_url(m, entries)}
+    did = desktop_id_for(cls, entries) or desktop_id_for(client.get("initialClass") or "", entries)
+    if did:
+        return {"kind": "desktop", "value": did}
+    argv = cmdline(client["pid"])
+    if argv and (os.path.isabs(argv[0]) and os.access(argv[0], os.X_OK) or shutil.which(argv[0])):
+        return {"kind": "argv", "value": argv}
+    return None
+
+
+def take_snapshot():
+    entries = desktop_entries()
+    windows = []
+    for c in hypr_json("clients"):
+        cls = c.get("class") or c.get("initialClass") or ""
+        if not cls or cls in TERMINALS or SKIP_CLASS.match(cls) or not c.get("mapped", True):
+            continue
+        spec = launch_spec(c, entries)
+        if not spec:
+            continue
+        windows.append({
+            "class": cls,
+            "title": c.get("title", ""),
+            "workspace": c["workspace"]["name"],
+            "floating": bool(c.get("floating")),
+            "size": c.get("size"),
+            "at": c.get("at"),
+            "launch": spec,
+        })
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    tmp = SNAPSHOT.with_suffix(".tmp")
+    tmp.write_text(json.dumps({"time": int(time.time()), "windows": windows}, indent=2, ensure_ascii=False) + "\n")
+    os.replace(tmp, SNAPSHOT)
+    return windows
+
+
+def restoring():
+    try:
+        return time.time() - RESTORING.stat().st_mtime < RESTORING_MAX_AGE
+    except OSError:
+        return False
+
+
+def on_event():
+    RUNTIME.mkdir(parents=True, exist_ok=True)
+    token = str(time.time_ns())
+    PENDING.write_text(token)
+    time.sleep(EVENT_DELAY)
+    try:
+        if PENDING.read_text() != token:
+            return  # a later event will take the snapshot
+    except OSError:
+        return
+    if restoring():
+        return
+    reason = session_ending()
+    if reason:
+        log(f"snapshot skipped: {reason}")
+        return
+    take_snapshot()
+
+
+# --- restore ----------------------------------------------------------------
+
+def launch(spec):
+    kind, value = spec["kind"], spec["value"]
+    if kind == "webapp":
+        cmd = ["omarchy-launch-webapp", value]
+    elif kind == "desktop":
+        cmd = ["uwsm-app", "--", value]
+    else:
+        cmd = ["uwsm-app", "--", *value]
+    subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL, start_new_session=True)
+    log("launched " + (value if isinstance(value, str) else shlex.join(value)))
+
+
+def title_key(title):
+    return re.sub(r"^\(\d+\)\s*", "", title or "")
+
+
+def place(client, entry):
+    addr = client["address"]
+    target = f"address:{addr}"
+    if client["workspace"]["name"] != entry["workspace"]:
+        dispatch(f'hl.dsp.window.move({{ workspace = "{entry["workspace"]}", follow = false, window = "{target}" }})')
+    if entry["floating"] and entry.get("size") and entry.get("at"):
+        if not client.get("floating"):
+            dispatch(f'hl.dsp.window.float({{ action = "enable", window = "{target}" }})')
+        w, h = entry["size"]
+        x, y = entry["at"]
+        dispatch(f'hl.dsp.window.resize({{ x = {w}, y = {h}, relative = false, window = "{target}" }})')
+        dispatch(f'hl.dsp.window.move({{ x = {x}, y = {y}, relative = false, window = "{target}" }})')
+    elif not entry["floating"] and client.get("floating"):
+        dispatch(f'hl.dsp.window.float({{ action = "disable", window = "{target}" }})')
+
+
+def wait_for_monitors():
+    last, stable_since, deadline = None, time.time(), time.time() + 15
+    while time.time() < deadline:
+        try:
+            now = sorted((m["name"], m["x"], m["y"]) for m in hypr_json("monitors"))
+        except (json.JSONDecodeError, OSError):
+            now = None
+        if now != last:
+            last, stable_since = now, time.time()
+        elif now and time.time() - stable_since >= 2:
+            return
+        time.sleep(0.3)
+
+
+def restore():
+    try:
+        saved = json.loads(SNAPSHOT.read_text())["windows"]
+    except (OSError, ValueError, KeyError):
+        return
+    RUNTIME.mkdir(parents=True, exist_ok=True)
+    RESTORING.write_text(str(os.getpid()))
+    try:
+        _restore(saved)
+    finally:
+        RESTORING.unlink(missing_ok=True)
+    take_snapshot()
+
+
+def _restore(saved):
+    wait_for_monitors()
+    pending = list(range(len(saved)))
+    used = set()
+
+    def assign(clients, only_new_from=None):
+        for c in clients:
+            if c["address"] in used or (only_new_from is not None and c["address"] in only_new_from):
+                continue
+            cls = c.get("class") or ""
+            candidates = [i for i in pending if saved[i]["class"] == cls]
+            if not candidates:
+                continue
+            best = max(candidates, key=lambda i: difflib.SequenceMatcher(
+                None, title_key(saved[i]["title"]), title_key(c.get("title"))).ratio())
+            used.add(c["address"])
+            pending.remove(best)
+            place(c, saved[best])
+
+    # Windows already open (autostarted apps) are moved, not relaunched.
+    assign(hypr_json("clients"))
+    if not pending:
+        return
+    open_classes = {c.get("class") for c in hypr_json("clients")}
+
+    launched = set()
+    webapps, browsers = [], []
+    for i in pending:
+        spec = saved[i]["launch"]
+        key = json.dumps(spec, sort_keys=True)
+        if key in launched or saved[i]["class"] in open_classes:
+            continue
+        launched.add(key)
+        if spec["kind"] == "webapp":
+            webapps.append((i, spec))
+        elif re.match(rf"^{BROWSER_PREFIX}$", saved[i]["class"]):
+            browsers.append(spec)
+        else:
+            launch(spec)
+
+    # The browser first: web apps open inside its process, and its own session
+    # restore may bring some of them back already.
+    for spec in browsers:
+        launch(spec)
+    if browsers and webapps:
+        deadline = time.time() + 10
+        while time.time() < deadline and not any(
+                re.match(rf"^{BROWSER_PREFIX}$", c.get("class") or "") for c in hypr_json("clients")):
+            time.sleep(0.3)
+        time.sleep(3)
+    present = {c.get("class") for c in hypr_json("clients")}
+    for i, spec in webapps:
+        if saved[i]["class"] not in present:
+            launch(spec)
+
+    deadline = time.time() + PLACE_TIMEOUT
+    while pending and time.time() < deadline:
+        assign(hypr_json("clients"))
+        time.sleep(0.3)
+    for i in pending:
+        log(f"no window showed up for {saved[i]['class']} ({saved[i]['title'][:40]})")
+
+
+def main():
+    cmd = sys.argv[1:2]
+    if cmd == ["changed"]:
+        on_event()
+    elif cmd == ["snapshot"]:
+        print(f"{len(take_snapshot())} windows saved to {SNAPSHOT}")
+    elif cmd == ["restore"]:
+        restore()
+    elif cmd == ["show"]:
+        print(SNAPSHOT.read_text() if SNAPSHOT.exists() else "no snapshot yet")
+    else:
+        sys.exit(__doc__)
+
+
+if __name__ == "__main__":
+    main()

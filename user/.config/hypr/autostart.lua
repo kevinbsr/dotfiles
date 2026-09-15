@@ -70,3 +70,14 @@ o.exec_on_start("/home/kevin/.local/bin/omarchy-gpu-render-confirm")
 -- Reopen a window for every tmux-terminal session the last logout or reboot
 -- left behind, each on the workspace it was on. See ~/.local/bin/tmux-terminal.
 o.exec_on_start("/home/kevin/.local/bin/tmux-terminal --reopen")
+
+-- GUI apps come back at login: gui-session keeps a snapshot of the open windows,
+-- refreshed 5 s after every window open/close/move (never while the session is
+-- ending), and relaunches them on their workspaces at the next login.
+-- See ~/.local/bin/gui-session.
+for _, event in ipairs({ "window.open", "window.destroy", "window.move_to_workspace" }) do
+  hl.on(event, function()
+    hl.exec_cmd("/home/kevin/.local/bin/gui-session changed")
+  end)
+end
+o.exec_on_start("/home/kevin/.local/bin/gui-session restore")
