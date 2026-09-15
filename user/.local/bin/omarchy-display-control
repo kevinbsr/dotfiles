@@ -13,6 +13,7 @@ Usage:
   omarchy-display-control set <connector> enabled <0|1>
   omarchy-display-control set <connector> power <0|1>
   omarchy-display-control set <connector> dpms <0|1>
+  omarchy-display-control step <+N|-N|max|min>   brightness keys: every monitor
 
 WHY
 The stock Omarchy panel acts on the focused monitor only. With no bar on the LG
@@ -35,6 +36,12 @@ HOW
   - the internal panel's refresh rate goes through omarchy-refresh-rate, which
     knows the NVIDIA-session modeline. The ASUS returns to its render-mode rate
     at the next login (omarchy-asus-rate --prepare).
+  - step (the brightness keys) moves every monitor by the same amount, so the
+    differences set in the panel survive a key press. The internal panel and
+    the OSD change at once; external targets go to a small cache in
+    $XDG_RUNTIME_DIR and one background `flush` writes only the newest value
+    per monitor over DDC, retrying (the ASUS drops ~1 in 3 writes). Holding a
+    key therefore never queues DDC writes behind each other.
   - power turns a monitor's screen off through its own DDC power mode (VCP
     0xD6, when the monitor lists it), without touching the layout. Hyprland's
     per-monitor DPMS is kept as `dpms`, but any mouse movement or key press
@@ -42,18 +49,22 @@ HOW
     needs), so it cannot keep one screen off while the others are in use.
 """
 
+import fcntl
 import json
 import os
 import re
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 
 HOME = Path.home()
 PROFILES = HOME / ".config/hyprmoncfg/profiles"
 CACHE = Path(os.environ.get("XDG_CACHE_HOME", HOME / ".cache")) / "omarchy-display-control"
 INTERNAL = re.compile(r"^(eDP|LVDS|DSI)-")
+RUNTIME = Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")) / "omarchy-display-control"
+BRIGHTNESS_FRESH = 120  # seconds a cached external brightness is trusted as a step base
 
 
 def run(cmd, timeout=15):
@@ -243,6 +254,8 @@ def state():
                 info = ddc_state(d["key"], bus) if bus else None
                 if info:
                     d.update(info)
+                    if info.get("brightness") is not None:
+                        remember_brightness(d["name"], info["brightness"])
             t = threading.Thread(target=fill)
             t.start()
             threads.append(t)
@@ -377,12 +390,173 @@ def set_brightness(connector, value):
             run(["brightnessctl", "-d", dev, "set", f"{pct}%"])
         return
     set_ddc(connector, "10", str(pct))
+    remember_brightness(connector, pct)
+
+
+# --- brightness keys ------------------------------------------------------------
+
+class Locked:
+    def __init__(self, name, blocking=True):
+        RUNTIME.mkdir(parents=True, exist_ok=True)
+        self.f = open(RUNTIME / name, "w")
+        self.blocking = blocking
+
+    def __enter__(self):
+        try:
+            fcntl.flock(self.f, fcntl.LOCK_EX | (0 if self.blocking else fcntl.LOCK_NB))
+            return True
+        except BlockingIOError:
+            return False
+
+    def __exit__(self, *exc):
+        fcntl.flock(self.f, fcntl.LOCK_UN)
+        self.f.close()
+
+
+def cache_path(connector):
+    return RUNTIME / f"brightness-{connector}.json"
+
+
+def cache_read(connector):
+    try:
+        return json.loads(cache_path(connector).read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def cache_write(connector, data):
+    RUNTIME.mkdir(parents=True, exist_ok=True)
+    tmp = cache_path(connector).with_suffix(".tmp")
+    tmp.write_text(json.dumps(data))
+    os.replace(tmp, cache_path(connector))
+
+
+def remember_brightness(connector, value):
+    with Locked("brightness.lock"):
+        data = cache_read(connector)
+        if data.get("target") is None and not data.get("delta"):
+            cache_write(connector, {"value": int(value), "time": time.time()})
+
+
+def clamp_pct(v):
+    return max(1, min(100, int(round(v))))
+
+
+def step(arg):
+    if arg in ("max", "min"):
+        absolute, delta = (100 if arg == "max" else 1), 0
+    else:
+        absolute, delta = None, int(arg)
+    monitors = [m for m in hypr_json("monitors") if not m.get("disabled") and m.get("dpmsStatus", True)]
+    focused = next((m["name"] for m in monitors if m.get("focused")), None)
+    shown = None
+
+    pending = False
+    # One lock for the whole step: a held key starts several of these at once,
+    # and two reading the same backlight value would lose a step.
+    with Locked("brightness.lock"):
+        for m in monitors:
+            if not INTERNAL.match(m["name"]):
+                continue
+            dev = backlight_device()
+            current = backlight_percent(dev) if dev else None
+            if current is None:
+                continue
+            new = absolute if absolute is not None else clamp_pct(current + delta)
+            run(["brightnessctl", "-d", dev, "set", f"{new}%"])
+            if shown is None or m["name"] == focused:
+                shown = new
+
+        for m in monitors:
+            if INTERNAL.match(m["name"]):
+                continue
+            data = cache_read(m["name"])
+            fresh = time.time() - data.get("time", 0) < BRIGHTNESS_FRESH
+            base = data.get("target")
+            if base is None and fresh:
+                base = data.get("value")
+            if absolute is not None:
+                data.update({"target": absolute, "delta": 0})
+            elif base is not None:
+                data.update({"target": clamp_pct(base + delta), "delta": 0})
+            else:
+                # Unknown or stale base: the flush reads the monitor first.
+                data["delta"] = data.get("delta", 0) + delta
+            data["time"] = time.time()
+            cache_write(m["name"], data)
+            pending = True
+            if m["name"] == focused and data.get("target") is not None:
+                shown = data["target"]
+
+    if shown is not None:
+        run(["omarchy-osd", "-i", "brightness", "-p", str(shown)])
+    if pending:
+        subprocess.Popen([os.path.abspath(sys.argv[0]), "flush"], stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+
+
+def ddc_brightness(bus):
+    out = run(["ddcutil", "--bus", bus, "getvcp", "10", "--brief"], timeout=10).stdout.split()
+    return round(100 * int(out[3]) / int(out[4])) if len(out) >= 5 and out[2] == "C" else None
+
+
+def flush():
+    with Locked("flush.lock", blocking=False) as got:
+        if not got:
+            return  # the running flush picks the new targets up
+        while True:
+            worked = False
+            for path in sorted(RUNTIME.glob("brightness-*.json")):
+                connector = path.stem.removeprefix("brightness-")
+                with Locked("brightness.lock"):
+                    data = cache_read(connector)
+                if data.get("target") is None and not data.get("delta"):
+                    continue
+                bus = bus_for(connector)
+                if not bus:
+                    continue
+                if data.get("delta") and data.get("target") is None:
+                    base = ddc_brightness(bus)
+                    if base is None:
+                        continue
+                    with Locked("brightness.lock"):
+                        data = cache_read(connector)
+                        data["target"] = clamp_pct(base + data.get("delta", 0))
+                        data["delta"] = 0
+                        cache_write(connector, data)
+                target = data["target"]
+                ok = False
+                for _ in range(3):
+                    if run(["ddcutil", "--bus", bus, "--noverify", "setvcp", "10", str(target)], timeout=10).returncode == 0:
+                        ok = True
+                        break
+                    time.sleep(0.15)
+                worked = True
+                with Locked("brightness.lock"):
+                    data = cache_read(connector)
+                    if data.get("target") == target:
+                        # Nothing newer arrived while writing: settle.
+                        cache_write(connector, {"value": target if ok else data.get("value"), "time": time.time()})
+                    elif ok:
+                        data["value"] = target
+                        cache_write(connector, data)
+                if not ok:
+                    with open(RUNTIME / "flush-errors.log", "a") as f:
+                        f.write(f"{time.strftime('%T')} {connector}: setvcp 10 {target} failed 3 times\n")
+            if not worked:
+                break
 
 
 def main():
     args = sys.argv[1:]
     if args == ["state"]:
         print(json.dumps(state()))
+        return
+    if len(args) == 2 and args[0] == "step" and re.fullmatch(r"[+-]\d+|max|min", args[1]):
+        step(args[1])
+        return
+    if args == ["flush"]:
+        flush()
         return
     if len(args) == 4 and args[0] == "set":
         _, connector, what, value = args

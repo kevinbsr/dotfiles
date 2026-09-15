@@ -82,23 +82,23 @@ o.bind("SUPER + M", "Mute microphone", "/home/kevin/.local/bin/omarchy-audio-inp
 o.bind("SUPER + XF86AudioMicMute", "Switch audio input", "/home/kevin/.local/bin/omarchy-audio-input-switch")
 o.bind("SUPER + CTRL + ALT + M", "Switch audio input", "/home/kevin/.local/bin/omarchy-audio-input-switch")
 
--- Brilho: o script pessoal espelha o brilho do painel interno nos monitores
--- externos via DDC/CI, coisa que o omarchy-brightness-display não faz.
-hl.unbind("XF86MonBrightnessUp")
-o.bind(
-	"XF86MonBrightnessUp",
-	"Brightness up",
-	"/home/kevin/.local/bin/brigthness_control.sh +5%",
-	{ locked = true, repeating = true }
-)
-
-hl.unbind("XF86MonBrightnessDown")
-o.bind(
-	"XF86MonBrightnessDown",
-	"Brightness down",
-	"/home/kevin/.local/bin/brigthness_control.sh 5%-",
-	{ locked = true, repeating = true }
-)
+-- Display brightness keys: every monitor moves by the same step (backlight on
+-- the laptop panel, DDC/CI on the external ones), keeping the differences set in
+-- the display panel. DDC writes are coalesced in the background, so holding a
+-- key stays smooth. Replaces brigthness_control.sh, which copied the laptop's
+-- percentage onto every external monitor, and the Omarchy SHIFT/ALT variants,
+-- which only touched the focused monitor. See ~/.local/bin/omarchy-display-control.
+for _, b in ipairs({
+  { "XF86MonBrightnessUp", "Brightness up", "+5" },
+  { "XF86MonBrightnessDown", "Brightness down", "-5" },
+  { "ALT + XF86MonBrightnessUp", "Brightness up precise", "+1" },
+  { "ALT + XF86MonBrightnessDown", "Brightness down precise", "-1" },
+  { "SHIFT + XF86MonBrightnessUp", "Brightness maximum", "max" },
+  { "SHIFT + XF86MonBrightnessDown", "Brightness minimum", "min" },
+}) do
+  hl.unbind(b[1])
+  o.bind(b[1], b[2], "/home/kevin/.local/bin/omarchy-display-control step " .. b[3], { locked = true, repeating = true })
+end
 
 -- Backlight RGB do teclado do G15. O omarchy-brightness-keyboard empacotado
 -- procura /sys/class/leds/*kbd_backlight*, que não existe nesta máquina (o RGB
