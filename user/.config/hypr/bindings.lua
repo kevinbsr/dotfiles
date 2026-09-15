@@ -18,6 +18,10 @@
 -- Absolute path: ~/.local/bin is not reliably on the bindings' PATH.
 hl.unbind("SUPER + RETURN")
 o.bind("SUPER + RETURN", "Terminal", "/home/kevin/.local/bin/tmux-terminal")
+-- SUPER + ALT + RETURN: a plain terminal, outside tmux (Omarchy binds it to its
+-- "Work" tmux session by default).
+hl.unbind("SUPER + ALT + RETURN")
+o.bind("SUPER + ALT + RETURN", "Terminal (plain)", { omarchy = "terminal" })
 
 -- Scratchpad genérico separado do Quake console do Omarchy. O console
 -- continua usando special:scratchpad; o scratchpad pessoal usa special:stash.

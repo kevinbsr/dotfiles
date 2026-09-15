@@ -1,0 +1,41 @@
+--- a/usr/share/omarchy/shell/plugins/bar/widgets/Indicators.qml	2026-09-15 02:38:18.000000000 -0300
++++ b/usr/share/omarchy/shell/plugins/bar/widgets/Indicators.qml	2026-09-15 08:36:33.880979158 -0300
+@@ -207,7 +207,10 @@
+         id: inactiveHorizontalBlock
+         anchors.verticalCenter: parent.verticalCenter
+         indicatorsModule: root
+-        indicatorEntries: root.indicatorEntries
++        // Local change (kevin, 2026-09-15): both orientations used to be built on
++        // every bar, the hidden one included -- each indicator loaded twice per
++        // bar. The unused orientation now gets an empty model.
++        indicatorEntries: root.vertical ? [] : root.indicatorEntries
+         indicatorBlock: "inactive"
+         horizontal: true
+         reportActiveState: !root.vertical
+@@ -221,7 +224,7 @@
+     ActiveIndicatorBlock {
+       id: activeHorizontalBlock
+       indicatorsModule: root
+-      indicatorModel: activeIndicatorModel
++      indicatorModel: root.vertical ? null : activeIndicatorModel
+       horizontal: true
+       reportActiveState: !root.vertical
+     }
+@@ -250,7 +253,7 @@
+         id: inactiveVerticalBlock
+         anchors.horizontalCenter: parent.horizontalCenter
+         indicatorsModule: root
+-        indicatorEntries: root.indicatorEntries
++        indicatorEntries: root.vertical ? root.indicatorEntries : []
+         indicatorBlock: "inactive"
+         horizontal: false
+         reportActiveState: root.vertical
+@@ -264,7 +267,7 @@
+     ActiveIndicatorBlock {
+       id: activeVerticalBlock
+       indicatorsModule: root
+-      indicatorModel: activeIndicatorModel
++      indicatorModel: root.vertical ? activeIndicatorModel : null
+       horizontal: false
+       reportActiveState: root.vertical
+     }
