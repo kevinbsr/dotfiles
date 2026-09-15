@@ -138,6 +138,7 @@ def set_mode(m, mode, label):
     # the path that works; it answers "ok", so check that, not the exit code.
     # This makes the change immediate; hyprmoncfgd's next poll then re-applies
     # the profile, which now carries the same mode.
+    subprocess.run(["logger", "-t", "omarchy-rate", f"{MONITOR} live {m['refreshRate']:.2f} -> {label}"], check=False)
     reply = hypr(
         "eval",
         f'hl.monitor({{ output = "{MONITOR}", mode = "{mode}", '

@@ -1,0 +1,141 @@
+#!/usr/bin/python3
+# omarchy:summary=Record what happens on screen during the first 90 s of a login
+"""Timeline of a login, for finding out why the desktop appears piece by piece
+and why the monitors blink afterwards.
+
+Started from ~/.config/hypr/autostart.lua. For 90 s it records, with the time
+since Hyprland started:
+  - Hyprland events (layers opening/closing -- the shell's bar and background --,
+    monitors added/removed, windows opening, config reloads);
+  - every change in a monitor's mode, refresh rate, scale, position or format,
+    polled every 200 ms (a modeset is what makes a screen blink);
+  - at the end, the user journal lines of the same period that explain who did
+    what (hyprmoncfgd, the rate scripts, gui-session, tmux-terminal).
+
+Output: ~/.local/state/login-timeline/<date>.log (the last 10 are kept).
+"""
+
+import json
+import os
+import socket
+import subprocess
+import threading
+import time
+from datetime import datetime
+from pathlib import Path
+
+DURATION = 90
+OUT_DIR = Path.home() / ".local/state/login-timeline"
+sig = os.environ.get("HYPRLAND_INSTANCE_SIGNATURE", "")
+runtime = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+SOCKET2 = f"{runtime}/hypr/{sig}/.socket2.sock"
+
+INTERESTING = ("openlayer", "closelayer", "monitoradded", "monitorremoved", "configreloaded",
+               "openwindow", "focusedmon", "workspacev2")
+
+
+def hyprland_start():
+    pid = None
+    try:
+        pid = int(Path(f"{runtime}/hypr/{sig}/hyprland.lock").read_text().split()[0])
+    except (OSError, ValueError, IndexError):
+        pass
+    if pid:
+        ticks = int(Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[19])
+        boot = time.time() - float(Path("/proc/uptime").read_text().split()[0])
+        return boot + ticks / os.sysconf("SC_CLK_TCK")
+    return time.time()
+
+
+START = hyprland_start()
+lines = []
+lock = threading.Lock()
+
+
+def record(text):
+    with lock:
+        lines.append((time.time(), text))
+
+
+def watch_events(stop):
+    try:
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.connect(SOCKET2)
+        s.settimeout(0.5)
+    except OSError as e:
+        record(f"socket2 unavailable: {e}")
+        return
+    buf = b""
+    while not stop.is_set():
+        try:
+            chunk = s.recv(65536)
+        except socket.timeout:
+            continue
+        if not chunk:
+            break
+        buf += chunk
+        while b"\n" in buf:
+            line, buf = buf.split(b"\n", 1)
+            text = line.decode(errors="replace")
+            if text.split(">>", 1)[0] in INTERESTING:
+                record("event " + text[:160])
+
+
+def watch_monitors(stop):
+    last = {}
+    while not stop.is_set():
+        try:
+            out = subprocess.run(["hyprctl", "-j", "monitors", "all"], capture_output=True, text=True, timeout=2).stdout
+            mons = json.loads(out or "[]")
+        except (subprocess.TimeoutExpired, json.JSONDecodeError):
+            mons = []
+        now = {}
+        for m in mons:
+            now[m["name"]] = (f'{m["width"]}x{m["height"]}@{m["refreshRate"]:.2f} scale={m["scale"]} '
+                              f'at={m["x"]}x{m["y"]} {m.get("currentFormat", "")} '
+                              f'{"disabled" if m.get("disabled") else "on"} dpms={m.get("dpmsStatus")}')
+        for name in sorted(set(now) | set(last)):
+            if now.get(name) != last.get(name):
+                record(f"monitor {name}: {last.get(name, '-')}  ->  {now.get(name, 'gone')}")
+        last = now
+        stop.wait(0.2)
+
+
+def main():
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    record(f"timeline started (Hyprland up {time.time() - START:.2f} s)")
+    stop = threading.Event()
+    threads = [threading.Thread(target=f, args=(stop,), daemon=True) for f in (watch_events, watch_monitors)]
+    for t in threads:
+        t.start()
+    time.sleep(DURATION)
+    stop.set()
+    for t in threads:
+        t.join(timeout=3)
+
+    since = datetime.fromtimestamp(START - 1).strftime("%Y-%m-%d %H:%M:%S")
+    journal = subprocess.run(
+        ["journalctl", "--user", "--since", since, "--no-pager", "-o", "short-unix",
+         "-t", "hyprmoncfgd", "-t", "gui-session", "-t", "tmux-terminal", "-t", "omarchy-rate",
+         "-t", "omarchy-shell", "-t", "uwsm_app-daemon"],
+        capture_output=True, text=True).stdout
+    for jl in journal.splitlines():
+        try:
+            ts, rest = jl.split(" ", 1)
+            if "sent: exec" in rest or "IpcHandler" in rest:
+                continue
+            lines.append((float(ts), "journal " + rest.split(" ", 1)[1][:170]))
+        except ValueError:
+            continue
+
+    name = OUT_DIR / (datetime.fromtimestamp(START).strftime("%Y%m%d-%H%M%S") + ".log")
+    with open(name, "w") as f:
+        f.write(f"# login timeline, Hyprland started {datetime.fromtimestamp(START):%F %T}\n")
+        for ts, text in sorted(lines):
+            f.write(f"{ts - START:7.2f}  {text}\n")
+    for old in sorted(OUT_DIR.glob("*.log"))[:-10]:
+        old.unlink()
+
+
+if __name__ == "__main__":
+    main()

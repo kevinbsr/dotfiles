@@ -96,6 +96,7 @@ def apply_live(rate):
             return
         depth = 10 if "2101010" in m.get("currentFormat", "") else 8
         mode = MODES[rate][0].removesuffix("Hz")
+        subprocess.run(["logger", "-t", "omarchy-rate", f"ASUS live {m['refreshRate']:.2f} -> {rate} Hz"], check=False)
         hypr(
             "eval",
             f'hl.monitor({{ output = "{ASUS_DESC}", mode = "{mode}", '

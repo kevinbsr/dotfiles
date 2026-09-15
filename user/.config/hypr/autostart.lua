@@ -89,3 +89,7 @@ hl.on("window.title", function(w)
   end
 end)
 o.exec_on_start("/home/kevin/.local/bin/gui-session restore")
+
+-- Diagnostics: records the first 90 s of each login (layers, monitor modesets,
+-- who changed what) to ~/.local/state/login-timeline/. See ~/.local/bin/login-timeline.
+o.exec_on_start("/home/kevin/.local/bin/login-timeline")
