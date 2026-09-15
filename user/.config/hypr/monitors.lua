@@ -72,7 +72,14 @@ hl.monitor({ output = "eDP-1", mode = "1920x1080@165", position = "4340x368", sc
 -- Le a taxa vertical maxima do descritor Display Range Limits (tag 0xFD) do
 -- EDID. Devolve nil se nao conseguir ler -- e ai caimos no modo conservador.
 local function dp1_max_hz()
-  local f = io.open("/sys/class/drm/card0-DP-1/edid", "rb")
+  -- The card index follows the BIOS graphics mode: DP-1 is card0-DP-1 in hybrid
+  -- (NVIDIA probes before the AMD) and card1-DP-1 in discrete (simpledrm takes
+  -- card0). A hardcoded card0 silently read nothing in discrete mode.
+  local f
+  for n = 0, 9 do
+    f = io.open("/sys/class/drm/card" .. n .. "-DP-1/edid", "rb")
+    if f then break end
+  end
   if not f then return nil end
   local d = f:read("*a")
   f:close()
@@ -87,7 +94,12 @@ local function dp1_max_hz()
   return nil
 end
 
--- 120 Hz a 10 bits DE PROPOSITO, e nao os 240 que o painel aceita.
+-- ATUALIZACAO 2026-09-14: de volta a 240 Hz / 10 bits (abaixo). O raciocinio a
+-- seguir sobre banda e DSC continua certo, mas o DP-1 e sempre da NVIDIA e o
+-- enlace morto ao acordar e recuperado pelo dp-wake-recover em ~3 s (medido).
+-- Se a recuperacao parar de funcionar, voltar para 120 Hz / 10 bits.
+--
+-- (Historico) 120 Hz a 10 bits DE PROPOSITO, e nao os 240 que o painel aceita.
 --
 -- O DP 1.4 entrega ~25,9 Gbps uteis. A 3440x1440:
 --     240 Hz / 10 bits = 37,4 Gbps  -> so passa com DSC
@@ -110,7 +122,11 @@ end
 -- setembro. Ela agora so confirma que o painel e o de alta taxa.
 local dp1_mode, dp1_depth = "3440x1440@120", 10
 local max_hz = dp1_max_hz()
-if not (max_hz and max_hz >= 120) then
+if max_hz and max_hz >= 240 then
+  -- 240 Hz / 10 bits needs DSC; the guard keeps it to panels whose EDID
+  -- advertises 240 (monitor OC on). Chosen 2026-09-14.
+  dp1_mode = "3440x1440@240"
+elseif not (max_hz and max_hz >= 120) then
   dp1_mode, dp1_depth = "3440x1440@60", 8
 end
 

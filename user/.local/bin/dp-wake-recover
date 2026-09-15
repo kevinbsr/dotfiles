@@ -1,16 +1,18 @@
 #!/bin/bash
 # Bring the DisplayPort link back after a resume.
 #
-# The ASUS on DP-1 hangs off the NVIDIA card while the AMD side composites.
-# Coming back from suspend the AMD display controller sometimes faults --
-#     amdgpu ... *ERROR* dc_dmub_srv_log_diagnostic_data: DMCUB error
-# -- and the link never re-establishes. Nothing reports it: the connector still
-# reads "connected" and Hyprland still lists the mode as active while the
-# monitor shows nothing.
+# The ASUS on DP-1 is wired to the NVIDIA card in every BIOS graphics mode, so
+# its link -- and the DSC that 240 Hz/10 bpc needs -- is always negotiated by
+# nvidia-drm. Coming back from suspend that link can come up dead. Nothing
+# reports it: the connector still reads "connected" and Hyprland still lists the
+# mode as active while the monitor shows nothing. (The amdgpu "DMCUB error" that
+# used to be blamed here fires on every eDP modeset/resume; it only coincided.)
 #
-# SINCE 2026-09-12 THIS SHOULD RARELY DO ANYTHING. DP-1 dropped from 240 Hz to
-# 120 Hz/10 bpc, which fits in DP 1.4 without DSC, and it is DSC that does not
-# renegotiate on wake. This stays as a safety net, not as the fix.
+# SINCE 2026-09-14 DP-1 RUNS 240 Hz/10 bpc AGAIN, and this is the fix, not a
+# spare. Measured: a 20 s DPMS off/on keeps the link, but a 2 min suspend brought
+# it back dead (DDC 0.01 Hz); this cycled the mode and it was up in ~3 s.
+# At 120 Hz/10 bpc (no DSC) resumes were clean -- that is the fallback if this
+# ever stops recovering it.
 #
 # WHAT ACTUALLY REVIVES IT: a mode cycle, low then high. Disabling and
 # re-enabling the output at the same mode is NOT enough -- with DSC the link
@@ -49,7 +51,11 @@ fi
 aguarda_conector() {
   local limite=$((SECONDS + 10))
   while ((SECONDS < limite)); do
-    [[ $(cat /sys/class/drm/card0-DP-1/status 2>/dev/null) == connected ]] && return 0
+    # card0-DP-1 in hybrid, card1-DP-1 in BIOS discrete mode (simpledrm is card0).
+    local status
+    for status in /sys/class/drm/card[0-9]-DP-1/status; do
+      [[ $(cat "$status" 2>/dev/null) == connected ]] && return 0
+    done
     sleep 0.25
   done
   return 1
@@ -58,7 +64,7 @@ aguarda_conector() {
 aguarda_conector || { log "DP-1 not connected after 10s; nothing to do"; exit 0; }
 
 BAIXO='hl.monitor({ output = "DP-1", mode = "3440x1440@60", position = "900x80", scale = 1.25, bitdepth = 8, cm = "srgb" })'
-ALTO='hl.monitor({ output = "DP-1", mode = "3440x1440@120", position = "900x80", scale = 1.25, bitdepth = 10, cm = "srgb" })'
+ALTO='hl.monitor({ output = "DP-1", mode = "3440x1440@240", position = "900x80", scale = 1.25, bitdepth = 10, cm = "srgb" })'
 
 # What Hyprland believes it is driving on DP-1, rounded. Empty if the compositor
 # is not answering yet or the output is not listed.
@@ -143,7 +149,9 @@ ciclo() {
   hyprctl eval "$BAIXO" >/dev/null 2>&1
   aguarda_taxa 60 || log "Hyprland did not settle at 60 Hz; continuing"
   hyprctl eval "$ALTO" >/dev/null 2>&1
-  aguarda_taxa 120 || log "Hyprland did not settle at 120 Hz; continuing"
+  local alto_hz=${ALTO#*mode = \"3440x1440@}
+  alto_hz=${alto_hz%%\"*}
+  aguarda_taxa "$alto_hz" || log "Hyprland did not settle at ${alto_hz} Hz; continuing"
 }
 
 aguarda_hyprland
