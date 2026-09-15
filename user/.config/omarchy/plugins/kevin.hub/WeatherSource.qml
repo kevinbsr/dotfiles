@@ -34,6 +34,14 @@ Item {
   property var dailyForecastReport: null
   property string wttrLocation: ""
 
+  // Auto-detected position from the public IP (ipinfo.io), used when no location
+  // is configured. Before this, auto-detect depended entirely on wttr.in: it
+  // named the area AND supplied the coordinates for the open-meteo forecast, so
+  // when wttr.in's TLS certificate expired (2026-09-15) the hub had no weather
+  // at all. It is re-read on every refresh, so the weather follows a trip, and
+  // it is never saved.
+  property var ipLocation: null
+
   // Configured location, read from the weather.json state file (owned by
   // omarchy-weather-location). The query is the wttr.in path segment
   // (coordinates when stored, else the encoded name); empty means IP
@@ -96,14 +104,17 @@ Item {
   readonly property var current: (hasConfiguredCoordinates && openMeteoCurrent) ? openMeteoCurrent : ((report && report.current_condition && report.current_condition[0]) ? report.current_condition[0] : openMeteoCurrent)
   readonly property var areaInfo: report && report.nearest_area && report.nearest_area[0] ? report.nearest_area[0] : null
   readonly property var forecastDays: WeatherModel.buildForecastDays(report, dailyForecastReport, Qt.formatDate(new Date(), "yyyy-MM-dd"))
-  readonly property string reportCountry: areaInfo && areaInfo.country && areaInfo.country[0] ? areaInfo.country[0].value : ""
+  // Country decides metric/imperial when no unit is set. Without a wttr.in
+  // report the IP lookup's country code stands in; otherwise the en_US system
+  // locale turned Brazil's weather into °F (2026-09-15).
+  readonly property string reportCountry: areaInfo && areaInfo.country && areaInfo.country[0] ? areaInfo.country[0].value : (ipLocation ? ipLocation.country : "")
 
   readonly property bool useImperial: WeatherModel.shouldUseImperial(setting("unit", ""), Qt.locale().name, reportCountry)
 
   // Auto-refresh interval in minutes; clamped to a sane minimum.
   readonly property int refreshMinutes: Math.max(1, parseInt(setting("refreshMinutes", 15), 10) || 15)
 
-  readonly property string reportLocation:  configuredLocation || wttrLocation || (areaInfo && areaInfo.areaName && areaInfo.areaName[0] ? areaInfo.areaName[0].value : "")
+  readonly property string reportLocation:  configuredLocation || wttrLocation || (areaInfo && areaInfo.areaName && areaInfo.areaName[0] ? areaInfo.areaName[0].value : "") || (ipLocation ? ipLocation.name : "")
   readonly property string reportTempNum:   current ? String(useImperial ? current.temp_F : current.temp_C) : ""
   readonly property string tempUnit:        "°" + (useImperial ? "F" : "C")
   readonly property string reportFeels:     current ? formatTemp(useImperial ? current.FeelsLikeF : current.FeelsLikeC) : ""
@@ -118,6 +129,7 @@ Item {
     dailyForecastRetries = 0
     if (!forecastProc.running) forecastProc.running = true
     if (root.locationQuery === "" && !locationProc.running) locationProc.running = true
+    if (!root.hasConfiguredCoordinates && !ipLocationProc.running) ipLocationProc.running = true
     // With stored coordinates this fetches open-meteo right away — no need
     // to wait for the slow wttr response. Without them it's a no-op until
     // wttr reports the detected area.
@@ -129,6 +141,10 @@ Item {
 
     var lat = parseFloat(String(root.configuredLocationState.latitude))
     var lon = parseFloat(String(root.configuredLocationState.longitude))
+    if ((isNaN(lat) || isNaN(lon)) && root.ipLocation) {
+      lat = root.ipLocation.latitude
+      lon = root.ipLocation.longitude
+    }
     if (isNaN(lat) || isNaN(lon)) {
       var area = sourceReport && sourceReport.nearest_area && sourceReport.nearest_area[0] ? sourceReport.nearest_area[0] : root.areaInfo
       if (!area) return
@@ -398,6 +414,32 @@ Item {
         var raw = String(text || "").trim()
         if (!raw) return
         root.wttrLocation = raw.split(",")[0]
+      }
+    }
+  }
+
+  Process {
+    id: ipLocationProc
+    command: ["curl", "-fsS", "--max-time", "5", "https://ipinfo.io/json"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        try {
+          var info = JSON.parse(String(text || ""))
+          var loc = String(info.loc || "").split(",")
+          var lat = parseFloat(loc[0]), lon = parseFloat(loc[1])
+          if (isNaN(lat) || isNaN(lon)) return
+          var moved = !root.ipLocation
+            || Math.abs(root.ipLocation.latitude - lat) > 0.05 || Math.abs(root.ipLocation.longitude - lon) > 0.05
+          root.ipLocation = { name: String(info.city || ""), country: String(info.country || ""), latitude: lat, longitude: lon }
+          // First fix, or a new place: fetch the forecast for it now instead of
+          // waiting for wttr.in to report an area.
+          if (moved && !root.hasConfiguredCoordinates) {
+            root.dailyForecastRetries = 0
+            root.refreshDailyForecast(null)
+          }
+        } catch (e) {
+        }
       }
     }
   }
