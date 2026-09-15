@@ -1,0 +1,22 @@
+[Unit]
+Description=Persistent tmux server (outlives logouts; snapshot on stop)
+Documentation=man:tmux(1)
+
+# Lives in the user manager, not the graphical session, so a logout leaves the
+# programs running (lingering is enabled for this user). Terminal windows attach
+# to it through ~/.local/bin/tmux-terminal, which also restores the last
+# tmux-resurrect snapshot when the server starts (tmux-save.timer keeps it fresh).
+
+[Service]
+Type=simple
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin
+ExecStart=/usr/bin/tmux -D
+ExecStartPost=%h/.local/bin/tmux-terminal --restore
+# Save while the programs are still running, then end them.
+ExecStop=%h/.local/bin/tmux-terminal --save
+ExecStop=/usr/bin/tmux kill-server
+TimeoutStopSec=30
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

@@ -66,3 +66,7 @@ o.exec_on_start("libinput-gestures")
 -- (see ~/.config/hypr/envs.lua). Absolute path: ~/.local/bin is not reliably on
 -- PATH for things Hyprland launches itself.
 o.exec_on_start("/home/kevin/.local/bin/omarchy-gpu-render-confirm")
+
+-- Reopen a window for every tmux-terminal session the last logout or reboot
+-- left behind, each on the workspace it was on. See ~/.local/bin/tmux-terminal.
+o.exec_on_start("/home/kevin/.local/bin/tmux-terminal --reopen")

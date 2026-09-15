@@ -1,0 +1,8 @@
+[Unit]
+Description=Snapshot the persistent tmux server (tmux-resurrect)
+Requisite=tmux.service
+After=tmux.service
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/tmux-terminal --save

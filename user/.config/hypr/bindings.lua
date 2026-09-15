@@ -12,6 +12,13 @@
 -- To disable all preinstalled app/webapp bindings, set:
 --   omarchy_preinstalled_bindings = false
 
+-- Terminal on the persistent tmux server (tmux.service): programs keep running
+-- through a logout (e.g. switching the GPU render mode) and come back after a
+-- reboot. Closing the window still ends them. See ~/.local/bin/tmux-terminal.
+-- Absolute path: ~/.local/bin is not reliably on the bindings' PATH.
+hl.unbind("SUPER + RETURN")
+o.bind("SUPER + RETURN", "Terminal", "/home/kevin/.local/bin/tmux-terminal")
+
 -- Scratchpad genérico separado do Quake console do Omarchy. O console
 -- continua usando special:scratchpad; o scratchpad pessoal usa special:stash.
 hl.unbind("SUPER + S")

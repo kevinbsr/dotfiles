@@ -1,0 +1,213 @@
+#!/bin/bash
+# omarchy:summary=Terminal windows backed by a tmux server that outlives the desktop session
+#
+# Usage:
+#   tmux-terminal                        open a terminal on a new tmux session, in the
+#                                        directory of the active terminal (SUPER + RETURN)
+#   tmux-terminal --reopen               at login: reopen a window for every terminal
+#                                        session the last logout/reboot left behind
+#   tmux-terminal --focus <pid> <name>   tmux hook: remember the session's workspace
+#   tmux-terminal --detached <name>      tmux hook: a window closed; end its session
+#                                        unless the whole desktop is going away
+#   tmux-terminal --save                 tmux-resurrect snapshot (tmux.service stop,
+#                                        tmux-save.timer every 15 min)
+#   tmux-terminal --restore              tmux.service start: restore the last snapshot
+#
+# HOW IT FITS TOGETHER
+# The tmux server runs as tmux.service in the systemd user manager, with lingering
+# on, so it is not part of the graphical session: logging out (e.g. to switch the
+# GPU render mode) leaves every program in it running. Across reboots,
+# tmux-resurrect saves the layout when the service stops and every 15 min, and
+# restores it when the server starts. tmux-continuum is not used: its "is another
+# tmux server running?" check counts its own `tmux show-option` calls when the
+# server starts under systemd, so it skipped both restore and autosave (seen
+# 2026-09-15).
+#
+# Sessions opened here are named term-N and get a state file holding their
+# Hyprland workspace. Only those are reopened at login or ended when their window
+# is closed; sessions made by hand (e.g. Omarchy's "Work") are left alone.
+#
+# Closing a window behaves like a normal terminal (the programs end), EXCEPT
+# while Omarchy's logout/reboot/shutdown scripts run -- they close every window
+# before leaving -- or when Hyprland is gone or the system is stopping. Detaching
+# with prefix + d counts as closing the window.
+set -uo pipefail
+
+STATE="$HOME/.local/state/tmux-terminal"
+PREFIX=term-
+
+ensure_server() {
+  systemctl --user is-active --quiet tmux.service || systemctl --user start tmux.service
+  wait_server
+}
+
+wait_server() {
+  local i
+  for ((i = 0; i < 50; i++)); do
+    # show-options never starts a server itself (start-server would, outside the unit).
+    tmux show -gv exit-empty >/dev/null 2>&1 && return 0
+    sleep 0.1
+  done
+  return 1
+}
+
+# Give the tmux server this desktop login's environment, so new panes see the
+# current WAYLAND_DISPLAY, HYPRLAND_INSTANCE_SIGNATURE, GPU variables, etc. The
+# server itself may have started at boot, before anyone logged in. Skipped when
+# the Hyprland instance has not changed since the last sync.
+sync_environment() {
+  local sig=${HYPRLAND_INSTANCE_SIGNATURE:-}
+  [[ -n $sig && $(tmux show -gqv @env-synced-for 2>/dev/null) == "$sig" ]] && return 0
+  local args=() size=0 name value
+  while IFS= read -r -d '' entry; do
+    name=${entry%%=*} value=${entry#*=}
+    case $name in
+      _ | PWD | OLDPWD | SHLVL | TMUX | TMUX_PANE | INVOCATION_ID | JOURNAL_STREAM | NOTIFY_SOCKET | \
+        SYSTEMD_EXEC_PID | MANAGERPID | MANAGERPIDFDID | MEMORY_PRESSURE_WATCH | MEMORY_PRESSURE_WRITE) continue ;;
+    esac
+    [[ $name =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+    # tmux reads an argument ending in ";" as a command separator; "\;" keeps it.
+    [[ $value == *';' ]] && value="${value%;}\\;"
+    # One tmux call per batch: a single message is capped ("Command too long").
+    if ((size + ${#entry} > 8000)); then
+      tmux "${args[@]}" >/dev/null 2>&1
+      args=() size=0
+    fi
+    args+=(setenv -g "$name" "$value" ';')
+    ((size += ${#entry} + 16))
+  done < <(env -0)
+  args+=(set -g @env-synced-for "$sig")
+  tmux "${args[@]}" >/dev/null 2>&1
+}
+
+hyprland_alive() {
+  local lock pid
+  for lock in "$XDG_RUNTIME_DIR"/hypr/*/hyprland.lock; do
+    read -r pid <"$lock" 2>/dev/null || continue
+    [[ $(cat "/proc/$pid/comm" 2>/dev/null) == Hyprland ]] &&
+      ! grep -qs '^State:[[:space:]]*Z' "/proc/$pid/status" && return 0
+  done
+  return 1
+}
+
+# Terminal (foot) window PID for a tmux client: the client is the terminal's child.
+window_pid_of_client() { ps -o ppid= -p "$1" 2>/dev/null | tr -d ' '; }
+
+open_window() { # <session> [dir]
+  setsid uwsm-app -- xdg-terminal-exec ${2:+--dir="$2"} tmux attach-session -t "=$1" >/dev/null 2>&1 &
+}
+
+new_terminal() {
+  ensure_server || exec omarchy-launch-terminal
+  sync_environment
+
+  # Directory of the active terminal; for a tmux window, its current pane's.
+  local dir="" active_pid
+  active_pid=$(hyprctl -j activewindow 2>/dev/null | jq -r '.pid // empty')
+  if [[ -n $active_pid ]]; then
+    dir=$(tmux list-clients -F '#{client_pid} #{pane_current_path}' 2>/dev/null |
+      while read -r cpid path; do
+        [[ $(window_pid_of_client "$cpid") == "$active_pid" ]] && { echo "$path"; break; }
+      done)
+  fi
+  [[ -d $dir ]] || dir=$(omarchy-cmd-terminal-cwd)
+
+  local n=1
+  while tmux has-session -t "=$PREFIX$n" 2>/dev/null; do ((n++)); done
+  local name=$PREFIX$n
+
+  mkdir -p "$STATE"
+  : >"$STATE/$name"
+  tmux new-session -d -s "$name" -c "$dir" || exec omarchy-launch-terminal
+  open_window "$name" "$dir"
+}
+
+reopen() {
+  ensure_server || exit 1
+  sync_environment
+
+  # Right after boot the snapshot may still be restoring: wait until the session
+  # list stops changing.
+  local prev="" cur i
+  for ((i = 0; i < 40; i++)); do
+    cur=$(tmux list-sessions -F '#{session_name}' 2>/dev/null | sort)
+    [[ -n $cur && $cur == "$prev" ]] && break
+    prev=$cur
+    sleep 0.5
+  done
+
+  mkdir -p "$STATE"
+  local f
+  for f in "$STATE"/*; do
+    [[ -f $f ]] || continue
+    tmux has-session -t "=${f##*/}" 2>/dev/null || rm -f "$f"
+  done
+
+  local attached name ws cpid wpid
+  while read -r attached name; do
+    [[ $attached == 0 && -f $STATE/$name ]] || continue
+    ws=$(<"$STATE/$name")
+    open_window "$name"
+    [[ -n $ws ]] || continue
+    # Move the window to its workspace once its tmux client shows up.
+    for ((i = 0; i < 50; i++)); do
+      cpid=$(tmux list-clients -t "=$name" -F '#{client_pid}' 2>/dev/null | head -n1)
+      [[ -n $cpid ]] && break
+      sleep 0.1
+    done
+    wpid=$(window_pid_of_client "${cpid:-0}")
+    [[ -n $wpid ]] &&
+      hyprctl dispatch "hl.dsp.window.move({ workspace = \"$ws\", follow = false, window = \"pid:$wpid\" })" >/dev/null 2>&1
+  done < <(tmux list-sessions -F '#{session_attached} #{session_name}' 2>/dev/null)
+}
+
+remember_workspace() { # <client pid> <session>
+  [[ -f $STATE/$2 ]] || exit 0
+  local wpid ws
+  wpid=$(window_pid_of_client "$1")
+  [[ -n $wpid ]] || exit 0
+  ws=$(hyprctl -j clients 2>/dev/null | jq -r --argjson p "$wpid" 'first(.[] | select(.pid == $p) | .workspace.name) // empty')
+  [[ -n $ws && $ws != special* ]] && echo "$ws" >"$STATE/$2"
+}
+
+closed_window() { # <session>
+  [[ -f $STATE/$1 ]] || exit 0
+  # Omarchy's logout/reboot/shutdown scripts are alive while they close windows.
+  pgrep -f 'bin/omarchy-system-(logout|reboot|shutdown)' >/dev/null && exit 0
+  sleep 1 # a crashing compositor takes a moment to disappear
+  hyprland_alive || exit 0
+  [[ $(systemctl is-system-running 2>/dev/null) == stopping ]] && exit 0
+  systemctl --user is-active --quiet graphical-session.target || exit 0
+  [[ $(tmux display -p -t "=$1:" '#{session_attached}' 2>/dev/null) == 0 ]] || exit 0
+  tmux kill-session -t "=$1" && rm -f "$STATE/$1"
+}
+
+restore_snapshot() {
+  # Runs as the unit's ExecStartPost: starting the unit from here would deadlock.
+  wait_server || exit 1
+  [[ -z $(tmux list-sessions 2>/dev/null) ]] || exit 0
+  [[ -e $HOME/.local/share/tmux/resurrect/last ]] || exit 0
+  local script
+  script=$(tmux show -gqv @resurrect-restore-script-path)
+  # Run inside the server: restore.sh drives panes with send-keys, which
+  # misbehaved when called from a client without a terminal.
+  [[ -x $script ]] && tmux run-shell "$script"
+}
+
+save_snapshot() {
+  # Never replace the last snapshot with an empty server.
+  [[ -n $(tmux list-sessions 2>/dev/null) ]] || exit 0
+  local script
+  script=$(tmux show -gqv @resurrect-save-script-path)
+  [[ -x $script ]] && "$script" quiet
+}
+
+case ${1:-} in
+  "") new_terminal ;;
+  --reopen) reopen ;;
+  --focus) remember_workspace "$2" "$3" ;;
+  --detached) closed_window "$2" ;;
+  --save) save_snapshot ;;
+  --restore) restore_snapshot ;;
+  *) sed -n '4,14p' "$0" >&2; exit 2 ;;
+esac

@@ -1,0 +1,12 @@
+#!/bin/bash
+# tmux-resurrect restore command for Claude Code panes (see @resurrect-processes
+# in ~/.config/tmux/tmux.conf). Gets the saved pane's original arguments; keeps
+# them, and adds --continue when the pane was not already resuming a
+# conversation, so a restored pane reopens the last conversation in its
+# directory instead of starting an empty one.
+for arg in "$@"; do
+  case $arg in
+    -c | --continue | -r | --resume | --resume=*) exec claude "$@" ;;
+  esac
+done
+exec claude --continue "$@"
