@@ -55,7 +55,8 @@ RESTORING = RUNTIME / "restoring"
 EVENT_DELAY = 5  # longer than the 2 s Omarchy waits between closing windows and ending the session
 MAX_DEFER = 20  # a title that keeps changing must not postpone the snapshot forever
 RESTORING_MAX_AGE = 120
-PLACE_TIMEOUT = 40
+PLACE_TIMEOUT = 60
+QUIET_PERIOD = 10  # seconds without new windows before the restore stops watching
 
 TERMINALS = {"foot", "footclient", "org.codeberg.dnkl.foot", "Alacritty", "kitty",
              "com.mitchellh.ghostty", "org.wezfurlong.wezterm"}
@@ -184,7 +185,14 @@ def launch_spec(client, entries):
 def take_snapshot():
     entries = desktop_entries()
     windows = []
-    for c in hypr_json("clients"):
+    clients = hypr_json("clients")
+    tiled = {(c["pid"], c.get("class")) for c in clients if not c.get("floating")}
+    for c in clients:
+        # A floating window of an app that also has a tiled window is a dialog
+        # (Bambu Studio's "Restore project?"); it comes back with its app or not at
+        # all. Same class too: web apps share the browser's process.
+        if c.get("floating") and (c["pid"], c.get("class")) in tiled:
+            continue
         cls = c.get("class") or c.get("initialClass") or ""
         if not cls or cls in TERMINALS or SKIP_CLASS.match(cls) or not c.get("mapped", True):
             continue
@@ -368,26 +376,50 @@ def restore():
 def _restore(saved):
     wait_for_monitors()
     pending = list(range(len(saved)))
-    used = set()
+    placed = {}  # window address -> saved entry index
+    initial = {c["address"] for c in hypr_json("clients")}
+    followed = set()
+    last_change = time.time()
 
-    def assign(clients, only_new_from=None):
+    def matches(i, cls):
+        host = webapp_host(cls)
+        return saved[i]["class"] == cls or (host and webapp_host(saved[i]["class"]) == host)
+
+    def settle(clients):
+        """One placement pass. Returns True when something changed."""
+        changed = False
+        present = {c["address"] for c in clients}
+        # A matched window that vanished was a splash screen or similar: the real
+        # window is still to come (Bambu Studio landed on the wrong workspace that way).
+        for addr in [a for a in placed if a not in present]:
+            pending.append(placed.pop(addr))
+            changed = True
         for c in clients:
-            if c["address"] in used or (only_new_from is not None and c["address"] in only_new_from):
+            addr, cls = c["address"], c.get("class") or ""
+            if addr in placed or addr in followed:
                 continue
-            cls = c.get("class") or ""
-            host = webapp_host(cls)
-            candidates = [i for i in pending
-                          if saved[i]["class"] == cls or (host and webapp_host(saved[i]["class"]) == host)]
-            if not candidates:
-                continue
-            best = max(candidates, key=lambda i: difflib.SequenceMatcher(
-                None, title_key(saved[i]["title"]), title_key(c.get("title"))).ratio())
-            used.add(c["address"])
-            pending.remove(best)
-            place(c, saved[best])
+            candidates = [i for i in pending if matches(i, cls)]
+            if candidates:
+                best = max(candidates, key=lambda i: difflib.SequenceMatcher(
+                    None, title_key(saved[i]["title"]), title_key(c.get("title"))).ratio())
+                pending.remove(best)
+                placed[addr] = best
+                place(c, saved[best])
+                changed = True
+            elif addr not in initial:
+                # Extra window of an app already placed (a dialog, a second
+                # window): keep it with the app instead of on the focused workspace.
+                owner = next((i for i in placed.values() if matches(i, cls)), None)
+                if owner is not None:
+                    if c["workspace"]["name"] != saved[owner]["workspace"]:
+                        dispatch(f'hl.dsp.window.move({{ workspace = "{saved[owner]["workspace"]}", '
+                                 f'follow = false, window = "address:{addr}" }})')
+                    followed.add(addr)
+                    changed = True
+        return changed
 
     # Windows already open (autostarted apps) are moved, not relaunched.
-    assign(hypr_json("clients"))
+    settle(hypr_json("clients"))
     if not pending:
         return
 
@@ -423,6 +455,7 @@ def _restore(saved):
         deadline = time.time() + 10
         while time.time() < deadline and not any(
                 re.match(rf"^{BROWSER_PREFIX}$", c.get("class") or "") for c in hypr_json("clients")):
+            settle(hypr_json("clients"))
             time.sleep(0.3)
         time.sleep(3)
     present = present_keys()
@@ -430,9 +463,14 @@ def _restore(saved):
         if key_of(i) not in present:
             launch(spec)
 
+    # Keep watching until nothing is pending and nothing has changed for a while:
+    # slow apps replace their splash window well after the first one maps.
     deadline = time.time() + PLACE_TIMEOUT
-    while pending and time.time() < deadline:
-        assign(hypr_json("clients"))
+    while time.time() < deadline:
+        if settle(hypr_json("clients")):
+            last_change = time.time()
+        elif not pending and time.time() - last_change >= QUIET_PERIOD:
+            break
         time.sleep(0.3)
     for i in pending:
         log(f"no window showed up for {saved[i]['class']} ({saved[i]['title'][:40]})")
