@@ -8,6 +8,11 @@
 #   omarchy-refresh-rate 60        switch to the mode with that rate
 #   omarchy-refresh-rate --sync    re-align a fast rate with this session's render
 #                                  mode (165 hybrid, 120 NVIDIA); 60 is left alone
+#   omarchy-refresh-rate --prepare the same, but only in the profiles and in
+#                                  ~/.config/hypr/hyprmoncfg-monitors.lua, without
+#                                  Hyprland: run from envs.lua at config time so
+#                                  the login does not start at the other mode's
+#                                  rate and blink when --sync fixes it
 #
 # The rate is also WRITTEN INTO THE HYPRMONCFG PROFILES. hyprmoncfgd polls the
 # monitors every few seconds and re-applies the best profile whenever anything
@@ -44,6 +49,9 @@ MONITOR = "eDP-1"
 # from udev through sudo, where $HOME is not guaranteed to be ours.
 HOME = pwd.getpwuid(os.getuid()).pw_dir
 PROFILES_DIR = os.path.join(HOME, ".config/hyprmoncfg/profiles")
+GENERATED = os.path.join(HOME, ".config/hypr/hyprmoncfg-monitors.lua")
+PANEL_DESC = "desc:LG Display 0x067E"  # how hyprmoncfg names eDP-1 in its rules
+HYBRID_FAST_MODE = {"1920x1080": "1920x1080@165.00"}
 RENDER_STATE = os.path.join(HOME, ".local/state/omarchy/gpu-render-active")
 NVIDIA_FAST_RATE = 120
 NVIDIA_FAST_MODELINE = {
@@ -148,8 +156,44 @@ def set_mode(m, mode, label):
         sys.exit(f"failed to set {label}: {reply}")
 
 
+def prepare():
+    """Fix the panel's fast rate for this render mode before Hyprland starts.
+    The resolution and the battery 60 Hz are taken from the generated rules
+    themselves; a 60 Hz there is left alone, as --sync does."""
+    try:
+        with open(GENERATED) as f:
+            text = f.read()
+    except OSError:
+        return
+    pattern = r'(output = "' + re.escape(PANEL_DESC) + r'",\s*\n\s*mode = ")([^"]*)(")'
+    found = re.search(pattern, text)
+    if not found:
+        return
+    current = found.group(2)
+    if current.startswith("modeline "):
+        f = current.split()
+        res = f"{f[2]}x{f[6]}"
+    else:
+        res, rate = current.split("@", 1)
+        if float(rate) < 100:
+            return
+    wanted = NVIDIA_FAST_MODELINE.get(res) if nvidia_session() else HYBRID_FAST_MODE.get(res)
+    if not wanted:
+        return
+    write_profiles(wanted)
+    if wanted != current:
+        new = re.sub(pattern, lambda m: m.group(1) + wanted + m.group(3), text)
+        tmp = GENERATED + ".tmp"
+        with open(tmp, "w") as out:
+            out.write(new)
+        os.replace(tmp, GENERATED)
+
+
 def main():
     args = sys.argv[1:]
+    if args == ["--prepare"]:
+        prepare()
+        return
     m = monitor()
 
     if not args:

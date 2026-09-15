@@ -5,6 +5,8 @@
 #   omarchy-asus-rate            print the rate this session wants (180 or 240)
 #   omarchy-asus-rate --sync     write it into every hyprmoncfg profile that has the
 #                                ASUS and apply it live if the monitor is connected
+#   omarchy-asus-rate --prepare  profiles + ~/.config/hypr/hyprmoncfg-monitors.lua only,
+#                                no Hyprland call: run from envs.lua at config time
 #
 # WHY TWO RATES
 # The ASUS (VG34WQML5A) is wired to the NVIDIA card. In a hybrid session every
@@ -29,12 +31,14 @@
 
 import json
 import os
+import re
 import pwd
 import subprocess
 import sys
 
 HOME = pwd.getpwuid(os.getuid()).pw_dir
 PROFILES_DIR = os.path.join(HOME, ".config/hyprmoncfg/profiles")
+GENERATED = os.path.join(HOME, ".config/hypr/hyprmoncfg-monitors.lua")
 RENDER_STATE = os.path.join(HOME, ".local/state/omarchy/gpu-render-active")
 ASUS_KEY = "asustek computer inc|vg34wqml5a|w2lmdw002227"
 ASUS_DESC = "desc:ASUSTek COMPUTER INC VG34WQML5A W2LMDW002227"
@@ -84,6 +88,30 @@ def write_profiles(rate):
     return changed
 
 
+def write_generated(rate):
+    """Set the ASUS mode in the monitor rules hyprmoncfg generated, which
+    hyprland.lua loads last. WHY: that file keeps the rates of whichever session
+    applied a profile last, so a login in the other render mode started at the
+    old rate and was corrected live seconds later -- a modeset on every screen
+    that changed, i.e. a blink (login-timeline, 2026-09-15: ASUS 180 -> 240 at
+    4.7 s). Written before Hyprland reads it, the first modeset is already right."""
+    try:
+        with open(GENERATED) as f:
+            text = f.read()
+    except OSError:
+        return False
+    mode = MODES[rate][0].removesuffix("Hz")
+    new = re.sub(r'(output = "' + re.escape(ASUS_DESC) + r'",\s*\n\s*mode = ")[^"]*(")',
+                 lambda m: m.group(1) + mode + m.group(2), text)
+    if new == text:
+        return False
+    tmp = GENERATED + ".tmp"
+    with open(tmp, "w") as f:
+        f.write(new)
+    os.replace(tmp, GENERATED)
+    return True
+
+
 def apply_live(rate):
     try:
         monitors = json.loads(hypr("-j", "monitors") or "[]")
@@ -111,10 +139,13 @@ def main():
         changed = write_profiles(rate)
         apply_live(rate)
         print(f"ASUS rate {rate} Hz" + (f" (profiles updated: {', '.join(changed)})" if changed else ""))
+    elif sys.argv[1:] == ["--prepare"]:
+        write_profiles(rate)
+        write_generated(rate)
     elif not sys.argv[1:]:
         print(rate)
     else:
-        sys.exit("usage: omarchy-asus-rate [--sync]")
+        sys.exit("usage: omarchy-asus-rate [--sync|--prepare]")
 
 
 main()

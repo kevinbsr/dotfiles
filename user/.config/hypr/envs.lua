@@ -176,3 +176,18 @@ do
   end
 end
 -- <<< omarchy-gpu-env-sync <<<
+
+-- Monitor rates for the render mode just decided above, written into the
+-- hyprmoncfg profiles and the generated rules (hyprmoncfg-monitors.lua, loaded
+-- last by hyprland.lua) BEFORE Hyprland applies them. Otherwise a login in the
+-- other mode starts at the previous session's rates and omarchy-gpu-render-confirm
+-- corrects them live seconds later: a modeset per screen, seen as blinks
+-- (login-timeline 2026-09-15: eDP 165 -> 120 at 4.4 s, ASUS 180 -> 240 at 4.7 s).
+-- No-ops when nothing changes, so reloads stay cheap. Outside the marked block
+-- above, which omarchy-gpu-env-sync rewrites.
+do
+  local home = os.getenv("HOME") or ""
+  local p = io.popen(home .. "/.local/bin/omarchy-refresh-rate --prepare 2>/dev/null; "
+    .. home .. "/.local/bin/omarchy-asus-rate --prepare 2>/dev/null")
+  if p then p:read("*a") p:close() end
+end

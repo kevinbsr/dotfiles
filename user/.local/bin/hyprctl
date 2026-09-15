@@ -12,7 +12,8 @@ if [[ -n ${TMUX:-} ]]; then
   dir=${XDG_RUNTIME_DIR:-/run/user/$UID}/hypr
   alive() {
     local pid
-    read -r pid <"$dir/$1/hyprland.lock" 2>/dev/null &&
+    # Test first: a failed "<file" redirection prints its error even with 2>/dev/null after it.
+    [[ -r $dir/$1/hyprland.lock ]] && read -r pid <"$dir/$1/hyprland.lock" &&
       [[ -n $pid && $(cat "/proc/$pid/comm" 2>/dev/null) == Hyprland ]]
   }
   if [[ -z ${HYPRLAND_INSTANCE_SIGNATURE:-} ]] || ! alive "$HYPRLAND_INSTANCE_SIGNATURE"; then
