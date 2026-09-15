@@ -7,13 +7,14 @@ import qs.Commons
 import "Model.js" as Model
 
 // Display panel with a monitor picker (no contrast control and scales up to 2x,
-// by choice; the backend still accepts `set <connector> contrast`). Every control below the picker acts on
+// by choice; the backend still accepts `set <connector> contrast`).
+// Every control below the picker acts on
 // the picked monitor, not on the focused one: with no bar on the LG monitor
 // (shell.json bar.hideOnMonitors), clicking a bar always focuses another
 // monitor, so a focus-bound panel could never reach it.
 //
 // State and actions go through ~/.local/bin/omarchy-display-control: backlight
-// or DDC/CI brightness, DDC contrast / color preset / input source / power,
+// or DDC/CI brightness, DDC color preset / input source / power,
 // and scale / refresh rate / enable written into the hyprmoncfg profile so the
 // daemon does not undo them.
 Panel {
@@ -43,7 +44,6 @@ Panel {
 
   // Slider values shown while a DDC/backlight write is on its way; -1 = follow sel.
   property int brightnessPreview: -1
-  property int contrastPreview: -1
   property var pendingSet: null
   property real wheelAccumulator: 0
 
@@ -161,7 +161,6 @@ Panel {
     if (!name || name === selectedName) return
     selectedName = name
     brightnessPreview = -1
-    contrastPreview = -1
   }
 
   function displayLabel(d) {
@@ -205,15 +204,14 @@ Panel {
 
   function sliderValue(what) {
     if (!sel) return 0
-    if (what === "brightness") return brightnessPreview >= 0 ? brightnessPreview : (sel.brightness || 0)
-    return contrastPreview >= 0 ? contrastPreview : (sel.contrast || 0)
+    return brightnessPreview >= 0 ? brightnessPreview : (sel.brightness || 0)
   }
 
   function setSlider(what, value) {
     if (!sel) return
     var v = Math.round(value)
-    if (what === "brightness") { v = Model.clampBrightness(v); brightnessPreview = v }
-    else { v = Math.max(0, Math.min(100, v)); contrastPreview = v }
+    v = Model.clampBrightness(v)
+    brightnessPreview = v
     queueSet(sel.name, what, v)
   }
 
@@ -287,7 +285,6 @@ Panel {
       selectedName = focusedName
       selectFocusedOnRead = true
       brightnessPreview = -1
-      contrastPreview = -1
       refresh()
       focusSection = displays.length > 1 ? "monitors" : "brightness"
       selectedIndex = firstIndex(focusSection)
@@ -322,7 +319,6 @@ Panel {
         // A settled write: drop the previews once the monitor reports the value.
         if (!setProc.running && !root.pendingSet) {
           root.brightnessPreview = -1
-          root.contrastPreview = -1
         }
       }
     }
@@ -512,7 +508,7 @@ Panel {
             }
           }
 
-          // ---------- Brightness / contrast ----------
+          // ---------- Brightness ----------
           PanelSeparator {
             visible: root.visibleSections.indexOf("brightness") !== -1
             foreground: root.bar.foreground
