@@ -187,6 +187,7 @@ remember_workspace() {
     ws=$(jq -r --argjson p "$wpid" 'first(.[] | select(.pid == $p) | .workspace.name) // empty' <<<"$clients")
     [[ -n $ws && $ws != special* ]] && echo "$ws" >"$STATE/$name"
   done < <(tmux list-clients -F '#{client_pid} #{session_name}' 2>/dev/null)
+  return 0
 }
 
 closed_window() {
@@ -214,6 +215,7 @@ closed_window() {
       log "ended $name: its window was closed"
     fi
   done < <(tmux list-sessions -F '#{session_attached} #{session_name}' 2>/dev/null)
+  return 0
 }
 
 restore_snapshot() {
