@@ -1,0 +1,44 @@
+--- a/usr/share/omarchy/shell/plugins/bar/Bar.qml	2026-09-15 06:12:52.695641628 -0300
++++ b/usr/share/omarchy/shell/plugins/bar/Bar.qml	2026-09-15 06:30:23.955109167 -0300
+@@ -1597,11 +1597,23 @@
+ 
+         CenterGestureArea { anchors.fill: parent }
+ 
+-        HoverHandler {
+-          onHoveredChanged: root.setCenterSectionHovered(hovered)
++        // Local change (kevin, 2026-09-15): the reveal hover used to fill this
++        // item, which fills the whole bar, so pointing at anything on the bar
++        // opened the indicators. Limit it to the span of the center modules.
++        Item {
++          readonly property Item first: centerRoot.hasAnchor ? centerBeforeH : centerPlainH
++          readonly property Item last: centerRoot.hasAnchor ? centerAfterH : centerPlainH
++          x: Math.min(first.x, centerAnchorModule.visible ? centerAnchorModule.x : first.x)
++          width: Math.max(last.x + last.width, centerAnchorModule.visible ? centerAnchorModule.x + centerAnchorModule.width : 0) - x
++          height: parent.height
++
++          HoverHandler {
++            onHoveredChanged: root.setCenterSectionHovered(hovered)
++          }
+         }
+ 
+         ModuleList {
++          id: centerPlainH
+           visible: !centerRoot.hasAnchor
+           entries: centerRoot.entries
+           region: "center"
+@@ -1609,6 +1621,7 @@
+         }
+ 
+         ModuleList {
++          id: centerBeforeH
+           visible: centerRoot.hasAnchor
+           entries: root.entriesBefore(centerRoot.entries, root.centerAnchor)
+           region: "center"
+@@ -1625,6 +1638,7 @@
+         }
+ 
+         ModuleList {
++          id: centerAfterH
+           visible: centerRoot.hasAnchor
+           entries: root.entriesAfter(centerRoot.entries, root.centerAnchor)
+           region: "center"
