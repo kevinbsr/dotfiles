@@ -6,8 +6,8 @@
 #                                        directory of the active terminal (SUPER + RETURN)
 #   tmux-terminal --reopen               at login: reopen a window for every terminal
 #                                        session the last logout/reboot left behind
-#   tmux-terminal --focus <pid> <name>   tmux hook: remember the session's workspace
-#   tmux-terminal --detached <name>      tmux hook: a window closed; end its session
+#   tmux-terminal --focus                tmux hook: remember each attached session's workspace
+#   tmux-terminal --detached             tmux hook: a window closed; end detached sessions
 #                                        unless the whole desktop is going away
 #   tmux-terminal --save                 tmux-resurrect snapshot (tmux.service stop,
 #                                        tmux-save.timer every 15 min)
@@ -28,13 +28,21 @@
 # is closed; sessions made by hand (e.g. Omarchy's "Work") are left alone.
 #
 # Closing a window behaves like a normal terminal (the programs end), EXCEPT
-# while Omarchy's logout/reboot/shutdown scripts run -- they close every window
-# before leaving -- or when Hyprland is gone or the system is stopping. Detaching
-# with prefix + d counts as closing the window.
+# when the whole desktop is going away. Omarchy's logout/reboot/shutdown scripts
+# close every window first and only stop the session (uwsm stop / systemctl
+# reboot) 2 s later, so the decision waits 5 s and then looks at the session
+# itself. Detaching with prefix + d counts as closing the window. Decisions are
+# logged: journalctl --user -t tmux-terminal
+#
+# The hooks take no session name on purpose: with several sessions, tmux expands
+# #{session_name} in client-detached to ANOTHER session (tested 2026-09-15), and
+# a 1 s wait plus that name ended a surviving session during a real logout.
 set -uo pipefail
 
 STATE="$HOME/.local/state/tmux-terminal"
 PREFIX=term-
+
+log() { logger -t tmux-terminal -- "$*" 2>/dev/null; }
 
 ensure_server() {
   systemctl --user is-active --quiet tmux.service || systemctl --user start tmux.service
@@ -156,30 +164,56 @@ reopen() {
       sleep 0.1
     done
     wpid=$(window_pid_of_client "${cpid:-0}")
-    [[ -n $wpid ]] &&
-      hyprctl dispatch "hl.dsp.window.move({ workspace = \"$ws\", follow = false, window = \"pid:$wpid\" })" >/dev/null 2>&1
+    [[ -n $wpid ]] || continue
+    # The terminal starts tmux before its window is mapped; a move sent too early
+    # is silently lost (a window stayed on the focused workspace, 2026-09-15).
+    for ((i = 0; i < 50; i++)); do
+      hyprctl -j clients 2>/dev/null | jq -e --argjson p "$wpid" 'any(.[]; .pid == $p)' >/dev/null && break
+      sleep 0.1
+    done
+    hyprctl dispatch "hl.dsp.window.move({ workspace = \"$ws\", follow = false, window = \"pid:$wpid\" })" >/dev/null 2>&1
+    echo "$ws" >"$STATE/$name" # the attach hook may have seen the pre-move workspace
+    log "reopened $name on workspace $ws"
   done < <(tmux list-sessions -F '#{session_attached} #{session_name}' 2>/dev/null)
 }
 
-remember_workspace() { # <client pid> <session>
-  [[ -f $STATE/$2 ]] || exit 0
-  local wpid ws
-  wpid=$(window_pid_of_client "$1")
-  [[ -n $wpid ]] || exit 0
-  ws=$(hyprctl -j clients 2>/dev/null | jq -r --argjson p "$wpid" 'first(.[] | select(.pid == $p) | .workspace.name) // empty')
-  [[ -n $ws && $ws != special* ]] && echo "$ws" >"$STATE/$2"
+remember_workspace() {
+  local clients cpid name wpid ws
+  clients=$(hyprctl -j clients 2>/dev/null) || exit 0
+  while read -r cpid name; do
+    [[ -f $STATE/$name ]] || continue
+    wpid=$(window_pid_of_client "$cpid")
+    [[ -n $wpid ]] || continue
+    ws=$(jq -r --argjson p "$wpid" 'first(.[] | select(.pid == $p) | .workspace.name) // empty' <<<"$clients")
+    [[ -n $ws && $ws != special* ]] && echo "$ws" >"$STATE/$name"
+  done < <(tmux list-clients -F '#{client_pid} #{session_name}' 2>/dev/null)
 }
 
-closed_window() { # <session>
-  [[ -f $STATE/$1 ]] || exit 0
-  # Omarchy's logout/reboot/shutdown scripts are alive while they close windows.
-  pgrep -f 'bin/omarchy-system-(logout|reboot|shutdown)' >/dev/null && exit 0
-  sleep 1 # a crashing compositor takes a moment to disappear
-  hyprland_alive || exit 0
-  [[ $(systemctl is-system-running 2>/dev/null) == stopping ]] && exit 0
-  systemctl --user is-active --quiet graphical-session.target || exit 0
-  [[ $(tmux display -p -t "=$1:" '#{session_attached}' 2>/dev/null) == 0 ]] || exit 0
-  tmux kill-session -t "=$1" && rm -f "$STATE/$1"
+closed_window() {
+  sleep 5
+  local reason=""
+  # Anchored: an unanchored "uwsm stop" also matched any shell whose command line
+  # merely mentioned it.
+  if pgrep -f '^(/usr)?(/bin/)?bash [^ ]*/omarchy-system-(logout|reboot|shutdown)( |$)|(^|[ /])uwsm stop$' >/dev/null; then
+    reason="Omarchy logout/reboot/shutdown in progress"
+  elif [[ $(systemctl is-system-running 2>/dev/null) == stopping ]]; then
+    reason="system is stopping"
+  elif ! systemctl --user is-active --quiet graphical-session.target; then
+    reason="graphical session is ending"
+  elif ! hyprland_alive; then
+    reason="Hyprland is gone"
+  fi
+
+  local attached name
+  while read -r attached name; do
+    [[ $attached == 0 && -f $STATE/$name ]] || continue
+    if [[ -n $reason ]]; then
+      log "kept $name: $reason"
+    elif tmux kill-session -t "=$name" 2>/dev/null; then
+      rm -f "$STATE/$name"
+      log "ended $name: its window was closed"
+    fi
+  done < <(tmux list-sessions -F '#{session_attached} #{session_name}' 2>/dev/null)
 }
 
 restore_snapshot() {
@@ -205,8 +239,8 @@ save_snapshot() {
 case ${1:-} in
   "") new_terminal ;;
   --reopen) reopen ;;
-  --focus) remember_workspace "$2" "$3" ;;
-  --detached) closed_window "$2" ;;
+  --focus) remember_workspace ;;
+  --detached) closed_window ;;
   --save) save_snapshot ;;
   --restore) restore_snapshot ;;
   *) sed -n '4,14p' "$0" >&2; exit 2 ;;
