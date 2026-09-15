@@ -6,7 +6,8 @@ import qs.Ui
 import qs.Commons
 import "Model.js" as Model
 
-// Display panel with a monitor picker. Every control below the picker acts on
+// Display panel with a monitor picker (no contrast control and scales up to 2x,
+// by choice; the backend still accepts `set <connector> contrast`). Every control below the picker acts on
 // the picked monitor, not on the focused one: with no bar on the LG monitor
 // (shell.json bar.hideOnMonitors), clicking a bar always focuses another
 // monitor, so a focus-bound panel could never reach it.
@@ -46,7 +47,7 @@ Panel {
   property var pendingSet: null
   property real wheelAccumulator: 0
 
-  readonly property var scalePresets: ["1", "1.25", "1.6", "2", "3", "4"]
+  readonly property var scalePresets: ["1", "1.25", "1.6", "2"]
   readonly property var scaleValues: sel ? Model.availableScales(scalePresets, sel.width, sel.height) : []
 
   readonly property var powerOptions: {
@@ -63,13 +64,12 @@ Panel {
   property int selectedIndex: 0
   property bool cursorActive: false
 
-  readonly property var sliderSections: ["brightness", "contrast", "textsize"]
+  readonly property var sliderSections: ["brightness", "textsize"]
 
   readonly property var visibleSections: {
     var list = []
     if (displays.length > 1) list.push("monitors")
     if (sel && sel.brightness !== null && sel.brightness !== undefined) list.push("brightness")
-    if (sel && sel.contrast !== null && sel.contrast !== undefined) list.push("contrast")
     if (sel && sel.enabled) list.push("scale")
     if (sel && sel.enabled && sel.rates && sel.rates.length > 1) list.push("refreshrate")
     if (sel && sel.presets && sel.presets.length > 0) list.push("preset")
@@ -107,7 +107,6 @@ Panel {
 
   function moveCursorH(delta) {
     if (focusSection === "brightness") { adjustSlider("brightness", delta * 5); return }
-    if (focusSection === "contrast") { adjustSlider("contrast", delta * 5); return }
     if (focusSection === "textsize") { adjustTextSize(delta); return }
     var last = sectionCount(focusSection) - 1
     selectedIndex = Math.max(0, Math.min(last, selectedIndex + delta))
@@ -515,7 +514,7 @@ Panel {
 
           // ---------- Brightness / contrast ----------
           PanelSeparator {
-            visible: root.visibleSections.indexOf("brightness") !== -1 || root.visibleSections.indexOf("contrast") !== -1
+            visible: root.visibleSections.indexOf("brightness") !== -1
             foreground: root.bar.foreground
           }
 
@@ -526,15 +525,6 @@ Panel {
             minimum: 1
             value: root.sliderValue("brightness")
             suffix: root.sel && !root.sel.internal ? "% · DDC" : "%"
-          }
-
-          SliderRow {
-            visible: root.visibleSections.indexOf("contrast") !== -1
-            section: "contrast"
-            title: "CONTRAST"
-            minimum: 0
-            value: root.sliderValue("contrast")
-            suffix: "%"
           }
 
           // ---------- Scale ----------
