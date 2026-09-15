@@ -8,6 +8,7 @@ Usage:
   omarchy-display-control set <connector> contrast <0-100>
   omarchy-display-control set <connector> input <hex VCP value, e.g. 0f>
   omarchy-display-control set <connector> preset <hex VCP value, e.g. 0b>
+  omarchy-display-control set <connector> mode <hex VCP value, e.g. 05>
   omarchy-display-control set <connector> scale <scale>
   omarchy-display-control set <connector> rate <hz>
   omarchy-display-control set <connector> enabled <0|1>
@@ -42,6 +43,8 @@ HOW
     $XDG_RUNTIME_DIR and one background `flush` writes only the newest value
     per monitor over DDC, retrying (the ASUS drops ~1 in 3 writes). Holding a
     key therefore never queues DDC writes behind each other.
+  - mode is the monitor's own picture mode (VCP 0xDC). MCCS only defines generic
+    categories for it, so the names come from a per-model table, mapped by hand.
   - power turns a monitor's screen off through its own DDC power mode (VCP
     0xD6, when the monitor lists it), without touching the layout. Hyprland's
     per-monitor DPMS is kept as `dpms`, but any mouse movement or key press
@@ -63,6 +66,22 @@ HOME = Path.home()
 PROFILES = HOME / ".config/hyprmoncfg/profiles"
 CACHE = Path(os.environ.get("XDG_CACHE_HOME", HOME / ".cache")) / "omarchy-display-control"
 INTERNAL = re.compile(r"^(eDP|LVDS|DSI)-")
+# Picture modes (VCP 0xDC) per monitor model. The capabilities string does not
+# list them; each value was written and read off the monitor's OSD on
+# 2026-09-15. 00, 0A and F0 are refused by the ASUS.
+PICTURE_MODES = {
+    "VG34WQML5A": [
+        {"value": "02", "label": "Scenery"},
+        {"value": "05", "label": "Racing"},
+        {"value": "01", "label": "Cinema"},
+        {"value": "06", "label": "RTS/RPG"},
+        {"value": "07", "label": "FPS"},
+        {"value": "03", "label": "sRGB"},
+        {"value": "08", "label": "MOBA"},
+        {"value": "09", "label": "Night Vision"},
+        {"value": "04", "label": "User"},
+    ],
+}
 RUNTIME = Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")) / "omarchy-display-control"
 BRIGHTNESS_FRESH = 120  # seconds a cached external brightness is trusted as a step base
 
@@ -148,8 +167,9 @@ def capabilities(key, bus):
     return data
 
 
-def ddc_state(key, bus):
-    out = run(["ddcutil", "--bus", bus, "getvcp", "10", "12", "14", "60", "D6", "--brief"], timeout=10).stdout
+def ddc_state(key, bus, model=""):
+    codes = ["10", "12", "14", "60", "D6"] + (["DC"] if model in PICTURE_MODES else [])
+    out = run(["ddcutil", "--bus", bus, "getvcp", *codes, "--brief"], timeout=10).stdout
     state = {}
     for line in out.splitlines():
         parts = line.split()
@@ -179,6 +199,8 @@ def ddc_state(key, bus):
         # Power off needs the monitor to list the "DPM: Off" value (04).
         "powerControl": any(v["value"] == "04" for v in caps.get("power", [])),
         "powerOn": named("d6") in (None, "01"),
+        "mode": named("dc") if model in PICTURE_MODES else None,
+        "modes": PICTURE_MODES.get(model, []),
     }
 
 
@@ -235,6 +257,7 @@ def state():
             "brightness": None, "contrast": None,
             "preset": None, "presets": [], "input": None, "inputs": [],
             "powerControl": False, "powerOn": True,
+            "mode": None, "modes": [],
         }
         displays.append(d)
         if internal:
@@ -251,7 +274,7 @@ def state():
         elif d["enabled"] and d["dpms"]:
             def fill(d=d):
                 bus = bus_for(d["name"])
-                info = ddc_state(d["key"], bus) if bus else None
+                info = ddc_state(d["key"], bus, d["model"]) if bus else None
                 if info:
                     d.update(info)
                     if info.get("brightness") is not None:
@@ -565,6 +588,7 @@ def main():
             "contrast": lambda: set_ddc(connector, "12", str(max(0, min(100, int(round(float(value))))))),
             "input": lambda: set_ddc(connector, "60", "0x" + value.lower().removeprefix("0x")),
             "preset": lambda: set_ddc(connector, "14", "0x" + value.lower().removeprefix("0x")),
+            "mode": lambda: set_ddc(connector, "DC", "0x" + value.lower().removeprefix("0x")),
             "scale": lambda: set_scale(connector, value),
             "rate": lambda: set_rate(connector, value),
             "enabled": lambda: set_enabled(connector, value),

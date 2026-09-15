@@ -72,6 +72,7 @@ Panel {
     if (sel && sel.brightness !== null && sel.brightness !== undefined) list.push("brightness")
     if (sel && sel.enabled) list.push("scale")
     if (sel && sel.enabled && sel.rates && sel.rates.length > 1) list.push("refreshrate")
+    if (sel && sel.modes && sel.modes.length > 0) list.push("mode")
     if (sel && sel.presets && sel.presets.length > 0) list.push("preset")
     if (sel && sel.inputs && sel.inputs.length > 1) list.push("input")
     if (sel) list.push("power")
@@ -83,6 +84,7 @@ Panel {
     if (section === "monitors") return displays.length
     if (section === "scale") return scaleValues.length
     if (section === "refreshrate") return sel && sel.rates ? sel.rates.length : 0
+    if (section === "mode") return sel && sel.modes ? sel.modes.length : 0
     if (section === "preset") return sel && sel.presets ? sel.presets.length : 0
     if (section === "input") return sel && sel.inputs ? sel.inputs.length : 0
     if (section === "power") return powerOptions.length
@@ -117,6 +119,7 @@ Panel {
     if (focusSection === "monitors" && i >= 0 && i < displays.length) selectDisplay(displays[i].name)
     else if (focusSection === "scale" && i >= 0 && i < scaleValues.length) setScale(scaleValues[i])
     else if (focusSection === "refreshrate" && sel && i >= 0 && i < sel.rates.length) runAction("rate", String(sel.rates[i]))
+    else if (focusSection === "mode" && sel && i >= 0 && i < sel.modes.length) runAction("mode", sel.modes[i].value)
     else if (focusSection === "preset" && sel && i >= 0 && i < sel.presets.length) runAction("preset", sel.presets[i].value)
     else if (focusSection === "input" && sel && i >= 0 && i < sel.inputs.length) runAction("input", sel.inputs[i].value)
     else if (focusSection === "power" && i >= 0 && i < powerOptions.length) activatePower(powerOptions[i].id)
@@ -547,6 +550,23 @@ Panel {
             options: root.sel && root.sel.rates ? root.sel.rates.map(function(r) { return { label: r + " Hz", value: r } }) : []
             activeIndex: root.sel && root.sel.rates ? root.sel.rates.indexOf(root.sel.refreshRate) : -1
             onChosen: function(i) { root.runAction("rate", String(root.sel.rates[i])) }
+          }
+
+          // ---------- Picture mode (the monitor's own OSD modes) ----------
+          PanelSeparator { visible: root.visibleSections.indexOf("mode") !== -1; foreground: root.bar.foreground }
+
+          PillSection {
+            visible: root.visibleSections.indexOf("mode") !== -1
+            title: "PICTURE MODE"
+            section: "mode"
+            columns: 3
+            options: root.sel && root.sel.modes ? root.sel.modes.map(function(p) { return { label: p.label, value: p.value } }) : []
+            activeIndex: {
+              if (!root.sel || !root.sel.modes) return -1
+              for (var i = 0; i < root.sel.modes.length; i++) if (root.sel.modes[i].value === root.sel.mode) return i
+              return -1
+            }
+            onChosen: function(i) { root.runAction("mode", root.sel.modes[i].value) }
           }
 
           // ---------- Color preset ----------
