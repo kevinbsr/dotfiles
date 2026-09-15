@@ -1,0 +1,58 @@
+# Maintainer: Caleb Maclennan <caleb@alerque.com>
+# Contributor: Aaron Blasko <blaskoazzolaaaron [at] gmail.com>
+
+pkgname=aquamarine
+pkgver=0.15.0
+pkgrel=2.1
+pkgdesc='a very light linux rendering backend library'
+arch=(x86_64 aarch64)
+url="https://github.com/hyprwm/$pkgname"
+license=(BSD-3-Clause)
+depends=(libgcc
+         libstdc++
+         glibc # libc.so libm.so
+         hyprutils libhyprutils.so
+         libdisplay-info libdisplay-info.so
+         libdrm # libdrm.so
+         libglvnd libEGL.so
+         libinput # libinput.so
+         mesa # libgbm.so
+         opengl-driver
+         pixman
+         seatd libseat.so
+         systemd-libs libudev.so
+         wayland libwayland-client.so
+         wayland-protocols)
+makedepends=(cmake
+             hyprwayland-scanner)
+provides=("lib$pkgname.so")
+_archive="$pkgname-$pkgver"
+# Local rebuild (2026-09-15): 0.15.0 plus hyprwm/aquamarine PR #395, which
+# disables the KMS output before a hot-unplugged connector is cleaned up.
+# Without it (regression #386, from the async-commit change 9d6fed9) the CRTC of
+# an unplugged monitor stays active in the kernel: on this G15 the NVIDIA card
+# then never runtime-suspends after undocking, and replugged outputs can stick
+# at 0x0. Drop this rebuild once an official release contains the fix.
+source=("$url/archive/v$pkgver/$_archive.tar.gz"
+        pr395-disable-kms-before-disconnect.patch)
+sha256sums=('bb5323f58cd2f379cb11c39893336e49980fe2e9fb101745addd87cebde3d13d'
+            '7d28fe76d81cf695085d4e6804abd00978a9d3dede0f29e7a86980d8cc63f270')
+
+prepare() {
+	cd "$_archive"
+	patch -Np1 -i ../pr395-disable-kms-before-disconnect.patch
+}
+
+build() {
+	cd "$_archive"
+	cmake -B build \
+		-D CMAKE_INSTALL_PREFIX=/usr \
+		-D CMAKE_BUILD_TYPE=Release
+	cmake --build build
+}
+
+package() {
+	cd "$_archive"
+	DESTDIR="$pkgdir" cmake --install build
+	install -Dm0644 -t "$pkgdir/usr/share/licenses/$pkgname" LICENSE
+}
