@@ -36,6 +36,13 @@
   "trigger.hardware.refresh-rate.120": {"icon":"󰓅","label":"120 Hz","description":"Fast rate in NVIDIA render sessions (every frame is copied through the CPU)","when":"grep -qs '^nvidia' ~/.local/state/omarchy/gpu-render-active","checked":"[[ \"$(omarchy-refresh-rate)\" == \"120\" ]]","action":"omarchy-refresh-rate 120"},
   "trigger.hardware.refresh-rate.60": {"icon":"󰾆","label":"60 Hz","description":"Saves battery","checked":"[[ \"$(omarchy-refresh-rate)\" == \"60\" ]]","action":"omarchy-refresh-rate 60"},
 
+  // Undock without logging out. Pulling the cable with the external monitors
+  // still enabled leaves their framebuffers on the NVIDIA card and it never
+  // sleeps (~24 W on battery). omarchy-undock turns them off through the
+  // "laptop" profile first and waits for the unplug. Shown only while a
+  // monitor is connected to a DP/HDMI port and the session is not NVIDIA-rendered.
+  "trigger.hardware.undock": {"icon":"󰍹","label":"Undock","aliases":["undock","desdock","unplug"],"description":"Turn off external monitors so the NVIDIA card can sleep after unplugging","when":"grep -qs '^connected' /sys/class/drm/card*-DP-*/status /sys/class/drm/card*-HDMI-*/status && ! grep -qs '^nvidia' ~/.local/state/omarchy/gpu-render-active","action":"/home/kevin/.local/bin/omarchy-undock"},
+
   // Modo gráfico do supergfxd. Substitui o menu "menus:gpuswitcher" do walker,
   // que o Quattro não tem mais. Trocar de modo SEMPRE reinicia a máquina --
   // o omarchy-toggle-hybrid-gpu edita /etc/supergfxd.conf e chama o reboot.

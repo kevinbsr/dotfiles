@@ -1,0 +1,82 @@
+#!/bin/bash
+# omarchy:summary=Turn off the external monitors cleanly so the NVIDIA card can sleep after unplugging
+#
+# WHY
+# In a hybrid session the external monitors hang off the NVIDIA card. Pulling
+# the cable while they are still enabled leaves Aquamarine holding their
+# framebuffers on the card (seen 2026-09-15 in /sys/kernel/debug/dri/0000:01:00.0/
+# framebuffer: 3440x1440 and 1600x900, "allocated by Hyprland", monitors long
+# gone). With video memory in use the driver never runtime-suspends the card:
+# ~24 W on battery instead of ~11 W, and `hyprctl reload` does not release them.
+# Disabling the outputs first goes through Aquamarine's normal disable path,
+# which does drop them -- measured the same night: fb list empty right after the
+# disable, card suspended 157 s of the 180 s after the unplug, no logout.
+#
+# HOW
+# hyprmoncfgd would re-enable the monitors within seconds (it re-applies the
+# best profile whenever the monitors differ from it), so it is paused, the
+# "laptop" profile is applied, and the script waits for every NVIDIA connector
+# to report "disconnected" before starting the daemon again. If nothing is
+# unplugged within the timeout, the daemon comes back and restores the desk.
+#
+# In an NVIDIA render session this is the wrong tool: the whole session lives on
+# the card. Log out to hybrid instead.
+set -uo pipefail
+shopt -s extglob
+
+TIMEOUT=120
+PROFILE=laptop
+
+notify() { notify-send -a "Undock" "$1" "${2:-}" 2>/dev/null || true; }
+
+if [[ $(head -n1 "$HOME/.local/state/omarchy/gpu-render-active" 2>/dev/null) == nvidia* ]]; then
+  notify "Undock: NVIDIA render session" "This session renders on the NVIDIA card. Switch GPU Mode to Hybrid (logs out) before undocking."
+  exit 1
+fi
+
+# NVIDIA connectors, found by the driver of their card rather than a card index:
+# the index changes with the BIOS graphics mode.
+nvidia_connectors() {
+  local card
+  for card in /sys/class/drm/card[0-9]*; do
+    [[ ${card##*/} == card+([0-9]) ]] || continue
+    [[ $(basename "$(readlink -f "$card/device/driver")") == nvidia ]] || continue
+    ls -d "$card"-* 2>/dev/null
+  done
+}
+
+
+any_connected() {
+  local c
+  for c in $(nvidia_connectors); do
+    [[ $(cat "$c/status" 2>/dev/null) == connected ]] && return 0
+  done
+  return 1
+}
+
+if ! any_connected; then
+  notify "Undock" "No external monitor is connected; nothing to do."
+  exit 0
+fi
+
+systemctl --user stop hyprmoncfgd
+restart_daemon() { systemctl --user start hyprmoncfgd; }
+trap restart_daemon EXIT
+
+if ! hyprmoncfg apply "$PROFILE" --confirm-timeout 0 >/dev/null 2>&1; then
+  notify "Undock failed" "Could not apply the \"$PROFILE\" monitor profile; monitors left as they were."
+  exit 1
+fi
+
+notify "Ready to undock" "External monitors are off. Unplug the cables within ${TIMEOUT} s."
+
+deadline=$((SECONDS + TIMEOUT))
+until ! any_connected; do
+  if ((SECONDS >= deadline)); then
+    notify "Undock cancelled" "Nothing was unplugged in ${TIMEOUT} s; restoring the monitors."
+    exit 0
+  fi
+  sleep 1
+done
+
+notify "Undocked" "The NVIDIA card can sleep now."
