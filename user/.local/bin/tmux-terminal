@@ -151,12 +151,22 @@ reopen() {
     tmux has-session -t "=${f##*/}" 2>/dev/null || rm -f "$f"
   done
 
+  # Every unattached term-* session gets a window back, with or without a state
+  # file. The file records the workspace and is written when a window is focused
+  # or saved, so a session restored from a snapshot after a hard power-off (no
+  # ExecStop, no save) has none -- and requiring it left term-2 alive inside
+  # tmux with no window on the 2026-09-16 13:19 boot. Without a file the window
+  # simply opens on the focused workspace.
   local attached name ws cpid wpid
   while read -r attached name; do
-    [[ $attached == 0 && -f $STATE/$name ]] || continue
-    ws=$(<"$STATE/$name")
+    [[ $attached == 0 && $name == "$PREFIX"* ]] || continue
+    ws=""
+    [[ -f $STATE/$name ]] && ws=$(<"$STATE/$name")
     open_window "$name"
-    [[ -n $ws ]] || continue
+    if [[ -z $ws ]]; then
+      log "reopened $name (no saved workspace)"
+      continue
+    fi
     # Move the window to its workspace once its tmux client shows up.
     for ((i = 0; i < 50; i++)); do
       cpid=$(tmux list-clients -t "=$name" -F '#{client_pid}' 2>/dev/null | head -n1)
