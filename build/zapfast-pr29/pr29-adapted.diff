@@ -1,0 +1,249 @@
+diff --git a/src/animation.rs b/src/animation.rs
+index 67046bc..d8925e4 100644
+--- a/src/animation.rs
++++ b/src/animation.rs
+@@ -86,8 +86,12 @@ pub enum Frame {
+     Unavailable,
+ }
+ 
+-/// Returns the current frame, starting decoding when needed. Schedules the next repaint.
+-pub fn frame(ui: &egui::Ui, path: &Path, rect: egui::Rect) -> Frame {
++/// Returns the current frame, starting decoding when needed.
++///
++/// A visible but paused animation returns its first frame without scheduling
++/// another repaint, so a chat full of animated media stays idle until playback
++/// is wanted (while hovering it, with the window focused).
++pub fn frame(ui: &egui::Ui, path: &Path, rect: egui::Rect, animate: bool) -> Frame {
+     // ScrollArea still lays out clipped rows. They must neither start decoders
+     // nor keep the window repainting while their pixels are off screen.
+     if !ui.is_rect_visible(rect) {
+@@ -155,14 +159,17 @@ pub fn frame(ui: &egui::Ui, path: &Path, rect: egui::Rect) -> Frame {
+         resident -= count;
+     }
+     match entries.get_mut(path) {
+-        Some(Entry::Ready(playing)) => {
+-            playing.last_drawn = now;
+-            let elapsed = now.duration_since(playing.started);
++        Some(Entry::Ready(animation)) => {
++            animation.last_drawn = now;
++            if !animate {
++                return Frame::Ready(animation.frames[0].0.clone());
++            }
++            let elapsed = now.duration_since(animation.started);
+             let mut position =
+-                Duration::from_nanos((elapsed.as_nanos() % playing.total.as_nanos()) as u64);
++                Duration::from_nanos((elapsed.as_nanos() % animation.total.as_nanos()) as u64);
+             let mut chosen = 0;
+             let mut until_next = Duration::from_millis(40);
+-            for (index, (_, delay)) in playing.frames.iter().enumerate() {
++            for (index, (_, delay)) in animation.frames.iter().enumerate() {
+                 if position < *delay {
+                     chosen = index;
+                     until_next = *delay - position;
+@@ -170,10 +177,10 @@ pub fn frame(ui: &egui::Ui, path: &Path, rect: egui::Rect) -> Frame {
+                 }
+                 position -= *delay;
+             }
+-            if playing.frames.len() > 1 {
++            if animation.frames.len() > 1 {
+                 ctx.request_repaint_after(until_next.max(Duration::from_millis(10)));
+             }
+-            Frame::Ready(playing.frames[chosen].0.clone())
++            Frame::Ready(animation.frames[chosen].0.clone())
+         }
+         Some(Entry::Decoding) => Frame::Pending,
+         Some(Entry::Failed) => Frame::Unavailable,
+@@ -500,7 +507,7 @@ mod tests {
+                     let rect =
+                         egui::Rect::from_min_size(egui::pos2(0.0, 1000.0), egui::vec2(50.0, 50.0));
+                     assert!(matches!(
+-                        super::frame(ui, path, rect),
++                        super::frame(ui, path, rect, true),
+                         super::Frame::Pending
+                     ));
+                 },
+diff --git a/src/demo.rs b/src/demo.rs
+index 55f8c9d..3914049 100644
+--- a/src/demo.rs
++++ b/src/demo.rs
+@@ -1683,6 +1683,10 @@ mod tests {
+         }
+         assert!(app.at_bottom, "still at the end after content grew");
+         assert!(app.scroll_to_bottom, "and still pinned");
++        assert!(
++            !ctx.requested_repaint_last_pass(),
++            "a settled bottom target does not force another frame"
++        );
+         // Wheel input releases automatic bottom pinning.
+         frame_with(
+             &mut app,
+diff --git a/src/ui/conversation.rs b/src/ui/conversation.rs
+index b5623c1..d3ba7cb 100644
+--- a/src/ui/conversation.rs
++++ b/src/ui/conversation.rs
+@@ -1161,6 +1161,8 @@ struct View<'a> {
+     mention_names: &'a dyn Fn(&str) -> String,
+     avatars: &'a HashMap<String, Option<PathBuf>>,
+     now: i64,
++    /// Animate media only while this window is the active one.
++    animate: bool,
+     player: &'a crate::audio::Player,
+     copy_rows: &'a std::sync::Mutex<Vec<crate::transcript::Row>>,
+ }
+@@ -1204,6 +1206,7 @@ fn messages(app: &mut App, ui: &mut egui::Ui, chat: &Chat) {
+         mention_names: &mention_names,
+         avatars: &avatars,
+         now: crate::util::now(),
++        animate: app.window_focused,
+         player: &app.player,
+         copy_rows: app.copy_rows.as_ref(),
+     };
+@@ -1286,9 +1289,11 @@ fn messages(app: &mut App, ui: &mut egui::Ui, chat: &Chat) {
+                     }
+                     ui.add_space(4.0);
+                     if scroll_to_bottom {
+-                        // Scroll past the end so clamping keeps the view pinned
+-                        // while media expands the content. Do it immediately.
+-                        let end = ui.cursor().min + vec2(0.0, 64.0);
++                        // Keep targeting the real end while media expands the
++                        // content. Account for ScrollArea's item-spacing term
++                        // so an already-satisfied target has exactly zero
++                        // delta and does not request another repaint forever.
++                        let end = ui.cursor().min - vec2(0.0, ui.spacing().item_spacing.y);
+                         ui.scroll_to_rect_animation(
+                             Rect::from_min_size(end, Vec2::ZERO),
+                             Some(Align::BOTTOM),
+@@ -2863,13 +2868,18 @@ fn picture(
+     };
+     if let Some(path) = &media.path {
+         if sticker == Some(true) {
++            // Never hand an animated WebP to egui's ordinary Image widget:
++            // that loader schedules every frame itself, including for rows
++            // outside the message viewport. The animation cache is the only
++            // owner of playback and wakes the UI only for a visible sticker
++            // that is hovered while the window has focus.
+             let size = fit_sticker(
+-                media.width.unwrap_or(180) as f32,
+-                media.height.unwrap_or(180) as f32,
++                media.width.unwrap_or(STICKER_SIDE as u32) as f32,
++                media.height.unwrap_or(STICKER_SIDE as u32) as f32,
+             );
+             let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+             if ui.is_rect_visible(rect) {
+-                match animation::frame(ui, path, rect) {
++                match animation::frame(ui, path, rect, view.animate && response.hovered()) {
+                     animation::Frame::Ready(texture) => {
+                         ui.painter().image(
+                             texture.id(),
+@@ -2878,7 +2888,10 @@ fn picture(
+                             Color32::WHITE,
+                         );
+                     }
+-                    _ => egui::Image::new(file_uri(path)).paint_at(ui, rect),
++                    _ => {
++                        ui.painter().rect_filled(rect, 8.0, view.palette.surface);
++                        theme::paint_icon(ui, Icon::Sticker, rect, 28.0, view.palette.secondary);
++                    }
+                 }
+             }
+             if response
+@@ -3069,7 +3082,12 @@ fn video(
+     // Play downloaded GIFs in place; keep a poster for other videos.
+     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+     let playing = match (&media.path, gif) {
+-        (Some(path), true) => Some(animation::frame(ui, path, rect)),
++        (Some(path), true) => Some(animation::frame(
++            ui,
++            path,
++            rect,
++            view.animate && response.hovered(),
++        )),
+         _ => None,
+     };
+     if let Some(animation::Frame::Ready(texture)) = &playing {
+diff --git a/src/ui/picker.rs b/src/ui/picker.rs
+index 80e8471..234ed08 100644
+--- a/src/ui/picker.rs
++++ b/src/ui/picker.rs
+@@ -588,7 +588,7 @@ fn sticker_tab(app: &mut App, ui: &mut egui::Ui, palette: &Palette) {
+         .show(ui, |ui| {
+             if !saved.is_empty() {
+                 theme::text(ui, "Saved", theme::semibold(12.5), palette.secondary);
+-                sticker_grid(ui, palette, &saved, true, &mut choices);
++                sticker_grid(ui, palette, &saved, true, app.window_focused, &mut choices);
+                 ui.add_space(8.0);
+             }
+             for pack in &packs {
+@@ -609,12 +609,26 @@ fn sticker_tab(app: &mut App, ui: &mut egui::Ui, palette: &Palette) {
+                         }
+                     });
+                 });
+-                sticker_grid(ui, palette, &pack.stickers, false, &mut choices);
++                sticker_grid(
++                    ui,
++                    palette,
++                    &pack.stickers,
++                    false,
++                    app.window_focused,
++                    &mut choices,
++                );
+                 ui.add_space(8.0);
+             }
+             if !recent.is_empty() {
+                 theme::text(ui, "Recent", theme::semibold(12.5), palette.secondary);
+-                sticker_grid(ui, palette, &recent, false, &mut choices);
++                sticker_grid(
++                    ui,
++                    palette,
++                    &recent,
++                    false,
++                    app.window_focused,
++                    &mut choices,
++                );
+             }
+         });
+     if let Some(path) = choices.send {
+@@ -699,6 +713,7 @@ fn sticker_grid(
+     palette: &Palette,
+     stickers: &[std::path::PathBuf],
+     saved: bool,
++    animate: bool,
+     choices: &mut StickerChoices,
+ ) {
+     let columns = 5;
+@@ -715,10 +730,17 @@ fn sticker_grid(
+                         ui.painter().rect_filled(rect, 8.0, palette.surface_hover);
+                     }
+                     let shown = rect.shrink(4.0);
+-                    // Animate only the hovered sticker to limit decoder work.
+-                    let played = response.hovered()
+-                        && moves(path)
+-                        && match crate::animation::frame(ui, path, rect) {
++                    // Decode only visible stickers and animate only the
++                    // hovered one, and only while the window has focus. The
++                    // remaining cells keep a still poster.
++                    let animated = moves(path);
++                    let played = animated
++                        && match crate::animation::frame(
++                            ui,
++                            path,
++                            rect,
++                            animate && response.hovered(),
++                        ) {
+                             crate::animation::Frame::Ready(texture) => {
+                                 let size = texture.size_vec2();
+                                 let scale = (shown.width() / size.x).min(shown.height() / size.y);
+@@ -734,7 +756,12 @@ fn sticker_grid(
+                             _ => false,
+                         };
+                     if !played {
+-                        sticker_picture(ui, path, shown);
++                        if animated {
++                            ui.painter().rect_filled(shown, 6.0, palette.surface);
++                            theme::paint_icon(ui, Icon::Sticker, shown, 24.0, palette.secondary);
++                        } else {
++                            sticker_picture(ui, path, shown);
++                        }
+                     }
+                 }
+                 egui::Popup::context_menu(&response)
