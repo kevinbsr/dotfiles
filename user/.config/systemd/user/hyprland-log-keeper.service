@@ -1,0 +1,18 @@
+[Unit]
+Description=Keep Hyprland's log outside the runtime directory
+Documentation=man:Hyprland(1)
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/hyprland-log-keeper
+Restart=on-failure
+RestartSec=5
+Nice=10
+# The log is evidence after a hang: never let the copy itself be the reason a
+# stuck session cannot be diagnosed.
+IOSchedulingClass=idle
+
+[Install]
+WantedBy=graphical-session.target
