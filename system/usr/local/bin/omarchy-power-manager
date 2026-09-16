@@ -34,17 +34,42 @@ WAIT_SECONDS=90
 # 2026-08-29 (boot 20:55:12: "no Hyprland runtime dir ... skipping").
 # Esperar e seguro porque o systemd-run --no-block da regra ja nos desacopla do
 # udev, que mataria um RUN+= demorado.
+# The instance directory shows up BEFORE the socket accepts connections, and an
+# orphaned directory from an earlier session survives in the runtime dir. In
+# both cases hyprctl fails and the rate change was lost: on the 2026-09-16
+# 13:19 boot the wait ended after 4s and omarchy-refresh-rate died with
+# "hyprctl -j monitors returned non-zero exit status 4", leaving the panel at
+# 165Hz on battery for the whole session. The wait now ends only when an
+# instance ANSWERS, and the signature that answered is the one used.
+HYPR_SIG=""
+
+hypr_probe() {
+  local hypr_dir="$RUNTIME_DIR/hypr" sig
+  [[ -d $hypr_dir ]] || return 1
+  while read -r sig; do
+    [[ -n $sig ]] || continue
+    if sudo -u "$USER_NAME" env \
+      XDG_RUNTIME_DIR="$RUNTIME_DIR" \
+      HYPRLAND_INSTANCE_SIGNATURE="$sig" \
+      hyprctl monitors >/dev/null 2>&1; then
+      HYPR_SIG="$sig"
+      return 0
+    fi
+  done < <(ls -1t "$hypr_dir" 2>/dev/null)
+  return 1
+}
+
 wait_for_hyprland() {
-  local waited=0 hypr_dir="$RUNTIME_DIR/hypr"
+  local waited=0
   while (( waited < WAIT_SECONDS )); do
-    if [[ -d $hypr_dir && -n "$(ls -1 "$hypr_dir" 2>/dev/null | head -n 1)" ]]; then
-      (( waited > 0 )) && log "Hyprland apareceu apos ${waited}s de espera"
+    if hypr_probe; then
+      (( waited > 0 )) && log "Hyprland respondeu apos ${waited}s de espera"
       return 0
     fi
     sleep 2
     waited=$(( waited + 2 ))
   done
-  log "Hyprland nao apareceu em ${WAIT_SECONDS}s; desistindo da troca de refresh"
+  log "Hyprland nao respondeu em ${WAIT_SECONDS}s; desistindo da troca de refresh"
   return 1
 }
 
@@ -60,19 +85,18 @@ current_state() {
 # would open a login shell and wipe whatever we exported, so the variables are
 # handed over explicitly with env(1).
 set_rate() {
-  local rate="$1" hypr_dir="$RUNTIME_DIR/hypr" sig reply
+  local rate="$1" reply
 
   wait_for_hyprland || return 0
 
-  sig="$(ls -1t "$hypr_dir" 2>/dev/null | head -n 1 || true)"
-  if [[ -z $sig ]]; then
+  if [[ -z $HYPR_SIG ]]; then
     log "no active Hyprland instance; skipping refresh-rate change"
     return 0
   fi
 
   if ! reply="$(sudo -u "$USER_NAME" env \
     XDG_RUNTIME_DIR="$RUNTIME_DIR" \
-    HYPRLAND_INSTANCE_SIGNATURE="$sig" \
+    HYPRLAND_INSTANCE_SIGNATURE="$HYPR_SIG" \
     "$REFRESH_RATE_BIN" "$rate" 2>&1)"; then
     log "failed to set ${rate}Hz: $reply"
     return 1
