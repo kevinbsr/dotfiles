@@ -188,8 +188,12 @@ def bench_7z(threads):
 def bench_openssl(algo):
     out, _ = run(["openssl", "speed", "-seconds", "2", "-evp", algo], timeout=300)
     last = None
+    # openssl labels the row in its own spelling: "AES-256-GCM" for the cipher
+    # this is asked for as "aes-256-gcm". Matching literally measured nothing
+    # on 2026-09-16 and left the metric empty in the first baseline.
+    wanted = algo.lower().replace("-", "")
     for line in (out or "").splitlines():
-        if line.strip().startswith(algo):
+        if line.strip().lower().replace("-", "").startswith(wanted):
             fields = [f for f in line.split() if f.endswith("k")]
             if fields:
                 last = float(fields[-1][:-1]) / 1e6  # GB/s from 1024-byte kB/s
@@ -467,19 +471,44 @@ def bench_cargo(reps):
 
 # --- phases -----------------------------------------------------------------
 
+def partial_path(kernel, phase):
+    return STATE / f"{kernel}-{phase}.partial.json"
+
+
+def load_partial(kernel, phase):
+    """Results measured before an interruption. Unattended runs are the reason:
+    a reboot in the middle used to throw away an hour of measurements, because
+    nothing was written until the very end."""
+    try:
+        return json.loads(partial_path(kernel, phase).read_text())["results"]
+    except (OSError, ValueError, KeyError):
+        return {}
+
+
 def phase_ac(args):
     env = environment()
     if not env["on_ac"] and not args.force:
         sys.exit("On battery: the AC phase is meant to run plugged in (--force to override).")
-    results = {}
+    results = load_partial(env["kernel"], "ac") if args.resume else {}
+    if results:
+        print(f"resuming: {len(results)} measurements already on disk", flush=True)
     reps = args.reps
+    STATE.mkdir(parents=True, exist_ok=True)
+
+    def flush():
+        partial_path(env["kernel"], "ac").write_text(
+            json.dumps({"label": args.label, "phase": "ac", "environment": env,
+                        "results": results}, indent=2) + "\n")
 
     def repeat(name, fn, unit, higher, count=None):
+        if name in results:
+            return
         print(f"  {name} ...", flush=True)
         values = []
         for _ in range(count or reps):
             values.append(fn())
         results[name] = stats(values, unit, higher)
+        flush()
 
     print("CPU", flush=True)
     repeat("cpu_7z_single", lambda: bench_7z(1), "MIPS", True)
@@ -489,13 +518,22 @@ def phase_ac(args):
     repeat("cpu_ffmpeg_x264_1080p10s", bench_ffmpeg, "s", False)
 
     print("scheduler and syscalls", flush=True)
-    pp_med, pp_p99 = [], []
-    for _ in range(reps):
-        med, p99 = bench_pingpong()
-        pp_med.append(med)
-        pp_p99.append(p99)
-    results["sched_pingpong_median"] = stats(pp_med, "us", False)
-    results["sched_pingpong_p99"] = stats(pp_p99, "us", False)
+
+    def repeat_pair(name_a, name_b, fn, unit_a, unit_b, higher_a, higher_b):
+        if name_a in results and name_b in results:
+            return
+        print(f"  {name_a} ...", flush=True)
+        first, second = [], []
+        for _ in range(reps):
+            a, b = fn()
+            first.append(a)
+            second.append(b)
+        results[name_a] = stats(first, unit_a, higher_a)
+        results[name_b] = stats(second, unit_b, higher_b)
+        flush()
+
+    repeat_pair("sched_pingpong_median", "sched_pingpong_p99", bench_pingpong,
+                "us", "us", False, False)
     repeat("proc_spawn", bench_spawn, "ms/spawn", False)
     repeat("syscall_getpid", bench_syscall, "ns/call", False)
 
@@ -506,13 +544,8 @@ def phase_ac(args):
     print("disk", flush=True)
     repeat("disk_seq_write", bench_disk_write, "MB/s", True)
     repeat("disk_seq_read", bench_disk_read, "MB/s", True)
-    rr_iops, rr_p99 = [], []
-    for _ in range(reps):
-        iops, p99 = bench_disk_random()
-        rr_iops.append(iops)
-        rr_p99.append(p99)
-    results["disk_rand4k_iops"] = stats(rr_iops, "IOPS", True)
-    results["disk_rand4k_p99"] = stats(rr_p99, "us", False)
+    repeat_pair("disk_rand4k_iops", "disk_rand4k_p99", bench_disk_random,
+                "IOPS", "us", True, False)
     repeat("sqlite_insert_fsync", bench_sqlite, "rows/s", True)
 
     print("GPU", flush=True)
@@ -524,24 +557,22 @@ def phase_ac(args):
 
     print("compositor", flush=True)
     repeat("compositor_window_open", bench_window_open, "ms", False)
-    ipc_med, ipc_p99 = [], []
-    for _ in range(reps):
-        med, p99 = bench_ipc()
-        ipc_med.append(med)
-        ipc_p99.append(p99)
-    results["compositor_ipc_median"] = stats(ipc_med, "us", False)
-    results["compositor_ipc_p99"] = stats(ipc_p99, "us", False)
+    repeat_pair("compositor_ipc_median", "compositor_ipc_p99", bench_ipc,
+                "us", "us", False, False)
 
-    if args.cargo_reps:
+    if args.cargo_reps and "build_cargo_release" not in results:
         print("cargo release build (slow)", flush=True)
         samples = bench_cargo(args.cargo_reps)
         if samples:
             results["build_cargo_release"] = stats(samples, "s", False)
+            flush()
 
     boot, _ = run(["systemd-analyze", "time"], timeout=60)
     results["boot_time_text"] = {"text": (boot or "").strip(), "note": "recorded, not repeatable"}
 
-    return save(env, results, args.label, "ac")
+    path = save(env, results, args.label, "ac")
+    partial_path(env["kernel"], "ac").unlink(missing_ok=True)
+    return path
 
 
 def phase_battery(args):
@@ -655,6 +686,8 @@ def main():
     p.add_argument("--cargo-reps", type=int, default=2)
     p.add_argument("--label", default="")
     p.add_argument("--no-nvidia", dest="nvidia", action="store_false")
+    p.add_argument("--resume", action="store_true",
+                   help="keep measurements already on disk for this kernel and phase")
     p.add_argument("--force", action="store_true")
     p.set_defaults(func=phase_ac, nvidia=True)
 
