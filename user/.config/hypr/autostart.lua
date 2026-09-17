@@ -93,3 +93,16 @@ o.exec_on_start("/home/kevin/.local/bin/gui-session restore")
 -- Diagnostics: records the first 90 s of each login (layers, monitor modesets,
 -- who changed what) to ~/.local/state/login-timeline/. See ~/.local/bin/login-timeline.
 o.exec_on_start("/home/kevin/.local/bin/login-timeline")
+
+-- Panel refresh rate after a dock change. The rate belongs to the power source
+-- (165 Hz on AC, 60 Hz on battery) but hyprmoncfg profiles belong to the
+-- monitor topology, and undocking changes both at once: the profile lands last
+-- and puts the panel back to 165 Hz on battery, worth 1.6 W measured on
+-- 2026-09-17. The helper waits for the profile to settle and only acts when the
+-- rate does not already match, so the layout change it causes itself stops
+-- there. See ~/.local/bin/omarchy-rate-for-power.
+for _, event in ipairs({ "monitor.added", "monitor.removed", "monitor.layout_changed" }) do
+  hl.on(event, function()
+    hl.exec_cmd("/home/kevin/.local/bin/omarchy-rate-for-power")
+  end)
+end

@@ -1,0 +1,61 @@
+#!/bin/bash
+# Put the laptop panel back on the refresh rate that matches the power source.
+#
+# WHY THIS EXISTS: the rate is chosen by power source (165 Hz on AC, 60 Hz on
+# battery) and applied by the udev rule through omarchy-power-manager. But the
+# rate also lives in the hyprmoncfg profiles, which are chosen by monitor
+# topology. Undocking changes both at once, and the profile lands last: on
+# 2026-09-17 the power manager logged "Battery mode: 60Hz" at 14:16:12 and the
+# panel was still at 165 Hz afterwards, because hyprmoncfgd reapplied the
+# laptop profile on top. That costs 1.6 W measured (14.74 W versus 13.12 W
+# idle), every time the laptop leaves the dock.
+#
+# Called from the monitor events in ~/.config/hypr/autostart.lua. It is a
+# no-op when the rate already matches, so the layout_changed event its own
+# change produces settles immediately instead of looping.
+set -uo pipefail
+
+SETTLE="${OMARCHY_RATE_SETTLE:-5}"   # let hyprmoncfgd finish applying its profile first
+RATE_AC=165
+RATE_BATTERY=60
+PANEL=eDP-1
+LOCK="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/omarchy-rate-for-power.lock"
+REFRESH_RATE_BIN="$HOME/.local/bin/omarchy-refresh-rate"
+
+log() { logger -t omarchy-rate -- "$*"; }
+
+# Only one at a time: a dock brings several monitor events within a second, and
+# each one would otherwise race the others through omarchy-refresh-rate.
+exec {lockfd}>"$LOCK"
+flock -n "$lockfd" || exit 0
+
+sleep "$SETTLE"
+
+on_ac=$(cat /sys/class/power_supply/ACAD/online 2>/dev/null || echo 1)
+if [[ $on_ac == 1 ]]; then
+  target=$RATE_AC
+else
+  target=$RATE_BATTERY
+fi
+
+current=$(hyprctl -j monitors 2>/dev/null |
+  python3 -c "
+import json, sys
+try:
+    monitors = json.load(sys.stdin)
+except ValueError:
+    sys.exit(0)
+for m in monitors:
+    if m.get('name') == '$PANEL':
+        print(round(m.get('refreshRate', 0)))
+        break
+" 2>/dev/null)
+
+[[ -n $current ]] || exit 0
+(( current == target )) && exit 0
+
+if out=$("$REFRESH_RATE_BIN" "$target" 2>&1); then
+  log "panel back to ${target}Hz after a monitor change (was ${current}Hz, on_ac=$on_ac)"
+else
+  log "could not set ${target}Hz after a monitor change: ${out:0:160}"
+fi
