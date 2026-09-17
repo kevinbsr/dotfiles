@@ -90,9 +90,17 @@ fi
 
 started=$(date +%s)
 systemctl suspend
-# This sleep spans the suspend: the clock keeps running while the system is out.
-sleep $((SLEEP_SECONDS + 20))
+# Wall clock, not sleep(1): CLOCK_MONOTONIC stops while the system is suspended,
+# so `sleep 1200` kept running for another 20 minutes AFTER the machine woke up
+# (seen 2026-09-17), and the charge sample taken at the end covered as much
+# awake time as suspended time -- which is why that cycle reported 14.9 W.
+# Polling the real clock ends the wait a few seconds after the RTC alarm.
+while (( $(date +%s) < started + SLEEP_SECONDS + 5 )); do
+  sleep 5
+done
 returned=$(date +%s)
+# Read the charge before anything else: every awake second here is error.
+charge_after=$(cat "$battery_path/charge_now" 2>/dev/null || echo 0)
 
 # How long until the compositor answers again -- the part that hung twice today.
 compositor_back=""
@@ -104,8 +112,6 @@ for ((i = 0; i < 120; i++)); do
   fi
   sleep 1
 done
-
-charge_after=$(cat "$battery_path/charge_now" 2>/dev/null || echo 0)
 
 KERNEL="$KERNEL" STATE="$STATE" LABEL="$LABEL" \
 SLEEP_SECONDS="$SLEEP_SECONDS" STARTED="$started" RETURNED="$returned" \
