@@ -4,6 +4,10 @@ After=graphical-session.target
 
 [Service]
 Type=oneshot
+# Skip entirely once this kernel has a finished result. Without it the hourly
+# timer would queue a second full suite behind the one still running, and
+# --resume finds nothing to resume after the final file is written.
+ExecCondition=/bin/bash -c '! compgen -G "%h/.local/state/kernel-bench/$(uname -r)-ac-*.json" >/dev/null'
 # --resume keeps whatever is already measured for this kernel: kernel-bench
 # writes its partial results after every test, so a reboot in the middle costs
 # one measurement instead of the whole night.
