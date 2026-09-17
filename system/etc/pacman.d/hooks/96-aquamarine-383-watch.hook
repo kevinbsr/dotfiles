@@ -1,0 +1,20 @@
+# aquamarine here is the official package plus one patch: the fix for
+# hyprwm/aquamarine#383, which is still open upstream and is not in 0.15.1.
+# Without it the DRM backend's destructor dereferences connectors it has just
+# reset, and Hyprland segfaults on every exit with more than one output.
+# Built from ~/.local/src/aquamarine-383/repo, pkgrel 1.1.
+#
+# The companion patch for #386 is gone: 0.15.1 carries the upstream fix (PR
+# #410), which is why this hook replaced 96-aquamarine-pr395-watch.hook.
+#
+# Any repo upgrade replaces the rebuild silently, so say so loudly.
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Type = Package
+Target = aquamarine
+
+[Action]
+Description = Checking whether the patched aquamarine rebuild (#383) was replaced...
+When = PostTransaction
+Exec = /bin/sh -c 'v=$(pacman -Q aquamarine | cut -d" " -f2); case "$v" in *-1.1) echo "aquamarine $v: local rebuild with the #383 exit-crash fix in place." ;; *) echo "WARNING: aquamarine $v replaced the local rebuild. If hyprwm/aquamarine#383 is not fixed in it, Hyprland segfaults on every logout with more than one output; rebuild from ~/.local/src/aquamarine-383/repo." ;; esac'
