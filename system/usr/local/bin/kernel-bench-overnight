@@ -24,7 +24,7 @@ LOG="$STATE/overnight.log"
 BENCH="$HOME_DIR/.local/bin/kernel-bench"
 KERNEL="$(uname -r)"
 LABEL="${KERNEL_BENCH_LABEL:-baseline before the omarchy kernel update}"
-SLEEP_SECONDS=120
+SLEEP_SECONDS=${KERNEL_BENCH_SLEEP_SECONDS:-1200}  # 20 min: short cycles drown in the awake seconds around them
 
 log() {
   printf '%s %s\n' "$(date -Is)" "$*" >>"$LOG"
@@ -129,10 +129,25 @@ for line in journal.splitlines():
     elif "PM: suspend exit" in line:
         exit_ = line.split()[2]
 
+# Power over the interval the kernel was actually out, not over the requested
+# seconds: the charge samples bracket the awake tail as well, and dividing by
+# the wrong denominator produced 22 W for a 120 s cycle on 2026-09-17. Even
+# with the right denominator a short cycle is dominated by the awake seconds
+# around it -- a trustworthy number needs a long suspend, which is what
+# SLEEP_SECONDS is for.
+def kernel_seconds(a, b):
+    from datetime import datetime
+    try:
+        fmt = "%H:%M:%S.%f"
+        return (datetime.strptime(b, fmt) - datetime.strptime(a, fmt)).total_seconds()
+    except (ValueError, TypeError):
+        return None
+
+suspended_s = kernel_seconds(entry, exit_)
 drain = None
 before, after, volt = (int(env[k] or 0) for k in ("CHARGE_BEFORE", "CHARGE_AFTER", "VOLTAGE"))
-if env["ON_AC"] != "1" and before and after and volt and after < before:
-    drain = (before - after) / 1e6 * (volt / 1e6) / (seconds / 3600)
+if env["ON_AC"] != "1" and before and after and volt and after < before and suspended_s:
+    drain = (before - after) / 1e6 * (volt / 1e6) / (suspended_s / 3600)
 
 back = env["COMPOSITOR_BACK"]
 results = {
@@ -144,7 +159,9 @@ results = {
         "resumed": exit_ is not None,
         "compositor_back_after_s": int(back) if back else None,
         "compositor_hung": back == "",
+        "suspended_s": suspended_s,
         "suspend_power_W": round(drain, 3) if drain else None,
+        "power_trustworthy": bool(drain and suspended_s and suspended_s >= 900),
         "on_ac": env["ON_AC"] == "1",
         "note": "suspend power needs the charger unplugged; on AC it stays null",
     }
