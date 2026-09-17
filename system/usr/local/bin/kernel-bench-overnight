@@ -82,6 +82,16 @@ charge_before=$(cat "$battery_path/charge_now" 2>/dev/null || echo 0)
 voltage=$(cat "$battery_path/voltage_now" 2>/dev/null || echo 0)
 on_ac=$(cat /sys/class/power_supply/ACAD/online 2>/dev/null || echo 1)
 
+# The point of the cycle is the suspend power, and that can only be read from
+# the battery: the charger has to be out. Running it on AC would still write a
+# result file, and the file is what tells this script the cycle is done -- so
+# one run with the charger in would cost the measurement for this kernel. Wait
+# for a battery run instead; the timer comes back every hour.
+if [[ $on_ac == 1 ]]; then
+  log "on AC: leaving the suspend cycle for a run on battery"
+  exit 0
+fi
+
 log "suspend cycle: arming the RTC for ${SLEEP_SECONDS}s"
 if ! rtcwake -m no -s "$SLEEP_SECONDS" >/dev/null 2>&1; then
   log "could not arm the RTC alarm; skipping the suspend cycle"
