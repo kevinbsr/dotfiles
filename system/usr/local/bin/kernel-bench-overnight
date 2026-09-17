@@ -23,7 +23,7 @@ STATE="$HOME_DIR/.local/state/kernel-bench"
 LOG="$STATE/overnight.log"
 BENCH="$HOME_DIR/.local/bin/kernel-bench"
 KERNEL="$(uname -r)"
-LABEL="${KERNEL_BENCH_LABEL:-baseline before the omarchy kernel update}"
+LABEL="${KERNEL_BENCH_LABEL:-unattended nightly run}"  # the kernel itself is recorded in the result
 SLEEP_SECONDS=${KERNEL_BENCH_SLEEP_SECONDS:-1200}  # 20 min: short cycles drown in the awake seconds around them
 
 log() {
