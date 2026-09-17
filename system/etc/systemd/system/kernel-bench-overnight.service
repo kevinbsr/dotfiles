@@ -1,0 +1,11 @@
+[Unit]
+Description=Unattended kernel benchmark and suspend cycle
+After=graphical.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/kernel-bench-overnight
+TimeoutStartSec=6h
+# The suite saturates the CPU on purpose; it must not outrank interactive work
+# if the user comes back to the machine while it runs.
+Nice=5

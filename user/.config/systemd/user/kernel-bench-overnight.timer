@@ -1,0 +1,12 @@
+[Unit]
+Description=Hourly attempt at the unattended kernel benchmark, at night
+
+[Timer]
+# Once an hour through the night. The run is idempotent: a finished kernel is
+# skipped, an interrupted one is resumed. That is what survives a reboot -- and
+# the night after a kernel update measures the new kernel on its own.
+OnCalendar=*-*-* 21,22,23,00,01,02,03,04,05,06:07:00
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

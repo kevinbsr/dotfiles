@@ -1,0 +1,14 @@
+[Unit]
+Description=Unattended kernel benchmark (AC phase)
+After=graphical-session.target
+
+[Service]
+Type=oneshot
+# --resume keeps whatever is already measured for this kernel: kernel-bench
+# writes its partial results after every test, so a reboot in the middle costs
+# one measurement instead of the whole night.
+ExecStart=%h/.local/bin/kernel-bench run --reps 3 --cargo-reps 2 --resume --label "baseline before the omarchy kernel update"
+TimeoutStartSec=5h
+# The suite saturates the CPU on purpose; it must not outrank interactive work
+# if the user comes back to the machine while it runs.
+Nice=5

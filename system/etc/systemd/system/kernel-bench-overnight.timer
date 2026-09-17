@@ -1,0 +1,13 @@
+[Unit]
+Description=Hourly attempt at the unattended kernel benchmark, at night
+
+[Timer]
+# Once an hour through the night. The service is idempotent: it measures only
+# what is missing for the running kernel, so the repeats are what make a reboot
+# survivable -- and the night after a kernel update produces the new baseline
+# on its own.
+OnCalendar=*-*-* 21,22,23,00,01,02,03,04,05,06:07:00
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,168 @@
+#!/bin/bash
+# Run the kernel-bench suite unattended, then a real suspend cycle.
+#
+# WHY A ROOT SERVICE: the suspend test has to arm the RTC (`rtcwake`), which
+# needs root, and asking for a polkit password at 03:00 is asking nobody. The
+# benchmark itself still runs as the user, because the GPU and compositor tests
+# need the live Wayland session.
+#
+# WHY IT IS IDEMPOTENT: the timer fires once an hour through the night. Each
+# run checks what is already on disk and does only what is missing, so a reboot
+# in the middle costs the current measurement, not the night. kernel-bench
+# writes its partial results after every test and `--resume` picks them up.
+#
+# ORDER MATTERS: the suspend cycle runs last, after the benchmark results are
+# saved. Resuming from suspend hung this machine twice on 2026-09-16, and a
+# hang must not take the measurements with it.
+set -uo pipefail
+
+USER_NAME=kevin
+USER_UID=1000
+HOME_DIR="/home/$USER_NAME"
+STATE="$HOME_DIR/.local/state/kernel-bench"
+LOG="$STATE/overnight.log"
+BENCH="$HOME_DIR/.local/bin/kernel-bench"
+KERNEL="$(uname -r)"
+LABEL="${KERNEL_BENCH_LABEL:-baseline before the omarchy kernel update}"
+SLEEP_SECONDS=120
+
+log() {
+  printf '%s %s\n' "$(date -Is)" "$*" >>"$LOG"
+  logger -t kernel-bench-overnight -- "$*"
+}
+
+as_user() {
+  runuser -u "$USER_NAME" -- env \
+    XDG_RUNTIME_DIR="/run/user/$USER_UID" \
+    WAYLAND_DISPLAY=wayland-1 \
+    HYPRLAND_INSTANCE_SIGNATURE="${HYPR_SIG:-}" \
+    DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$USER_UID/bus" \
+    "$@"
+}
+
+hypr_signature() {
+  local newest
+  newest=$(ls -1t "/run/user/$USER_UID/hypr" 2>/dev/null | head -n 1)
+  [[ -n $newest && -S /run/user/$USER_UID/hypr/$newest/.socket.sock ]] || return 1
+  printf '%s' "$newest"
+}
+
+mkdir -p "$STATE"
+chown "$USER_NAME:" "$STATE" 2>/dev/null
+shopt -s nullglob
+
+HYPR_SIG="$(hypr_signature)" || HYPR_SIG=""
+
+ac_results=("$STATE/$KERNEL"-ac-*.json)
+if ((${#ac_results[@]} == 0)); then
+  if [[ -z $HYPR_SIG ]]; then
+    # After a reboot the greeter may still be up: no session, no GPU numbers.
+    log "no live Hyprland session; leaving the AC phase for the next timer"
+    exit 0
+  fi
+  log "AC phase starting on $KERNEL"
+  as_user "$BENCH" run --reps 3 --cargo-reps 2 --resume --label "$LABEL" >>"$LOG" 2>&1
+  log "AC phase exited with status $?"
+  ac_results=("$STATE/$KERNEL"-ac-*.json)
+fi
+
+if ((${#ac_results[@]} == 0)); then
+  log "AC phase still incomplete; the next timer will resume it"
+  exit 0
+fi
+
+suspend_results=("$STATE/$KERNEL"-suspend-*.json)
+if ((${#suspend_results[@]})); then
+  log "suspend cycle already recorded for $KERNEL; nothing left to do"
+  exit 0
+fi
+
+battery_path=/sys/class/power_supply/BAT1
+charge_before=$(cat "$battery_path/charge_now" 2>/dev/null || echo 0)
+voltage=$(cat "$battery_path/voltage_now" 2>/dev/null || echo 0)
+on_ac=$(cat /sys/class/power_supply/ACAD/online 2>/dev/null || echo 1)
+
+log "suspend cycle: arming the RTC for ${SLEEP_SECONDS}s"
+if ! rtcwake -m no -s "$SLEEP_SECONDS" >/dev/null 2>&1; then
+  log "could not arm the RTC alarm; skipping the suspend cycle"
+  exit 1
+fi
+
+started=$(date +%s)
+systemctl suspend
+# This sleep spans the suspend: the clock keeps running while the system is out.
+sleep $((SLEEP_SECONDS + 20))
+returned=$(date +%s)
+
+# How long until the compositor answers again -- the part that hung twice today.
+compositor_back=""
+for ((i = 0; i < 120; i++)); do
+  HYPR_SIG="$(hypr_signature)" || HYPR_SIG=""
+  if [[ -n $HYPR_SIG ]] && as_user /usr/bin/hyprctl monitors >/dev/null 2>&1; then
+    compositor_back=$(( $(date +%s) - returned ))
+    break
+  fi
+  sleep 1
+done
+
+charge_after=$(cat "$battery_path/charge_now" 2>/dev/null || echo 0)
+
+KERNEL="$KERNEL" STATE="$STATE" LABEL="$LABEL" \
+SLEEP_SECONDS="$SLEEP_SECONDS" STARTED="$started" RETURNED="$returned" \
+CHARGE_BEFORE="$charge_before" CHARGE_AFTER="$charge_after" VOLTAGE="$voltage" \
+ON_AC="$on_ac" COMPOSITOR_BACK="$compositor_back" python3 - <<'PY'
+import json, os, re, subprocess
+from datetime import datetime, timezone
+
+env = os.environ
+state = env["STATE"]
+kernel = env["KERNEL"]
+seconds = int(env["SLEEP_SECONDS"])
+
+journal = subprocess.run(
+    ["journalctl", "-b", "-k", "-n", "400", "--no-pager", "-o", "short-precise"],
+    capture_output=True, text=True, errors="replace").stdout
+entry = exit_ = None
+for line in journal.splitlines():
+    if "PM: suspend entry" in line:
+        entry = line.split()[2]
+    elif "PM: suspend exit" in line:
+        exit_ = line.split()[2]
+
+drain = None
+before, after, volt = (int(env[k] or 0) for k in ("CHARGE_BEFORE", "CHARGE_AFTER", "VOLTAGE"))
+if env["ON_AC"] != "1" and before and after and volt and after < before:
+    drain = (before - after) / 1e6 * (volt / 1e6) / (seconds / 3600)
+
+back = env["COMPOSITOR_BACK"]
+results = {
+    "suspend_cycle": {
+        "requested_s": seconds,
+        "wall_s": int(env["RETURNED"]) - int(env["STARTED"]),
+        "kernel_suspend_entry": entry,
+        "kernel_suspend_exit": exit_,
+        "resumed": exit_ is not None,
+        "compositor_back_after_s": int(back) if back else None,
+        "compositor_hung": back == "",
+        "suspend_power_W": round(drain, 3) if drain else None,
+        "on_ac": env["ON_AC"] == "1",
+        "note": "suspend power needs the charger unplugged; on AC it stays null",
+    }
+}
+stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+path = os.path.join(state, f"{kernel}-suspend-{stamp}.json")
+with open(path, "w") as f:
+    json.dump({"label": env["LABEL"], "phase": "suspend",
+               "environment": {"kernel": kernel,
+                               "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds")},
+               "results": results}, f, indent=2)
+    f.write("\n")
+print(path)
+PY
+
+chown -R "$USER_NAME:" "$STATE" 2>/dev/null
+if [[ -n $compositor_back ]]; then
+  log "suspend cycle done: compositor answered ${compositor_back}s after resume"
+else
+  log "suspend cycle done: THE COMPOSITOR NEVER ANSWERED after resume"
+fi
