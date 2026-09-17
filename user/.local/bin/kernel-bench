@@ -165,6 +165,7 @@ def environment():
         "on_ac": read(AC) == "1",
         "battery_percent": read(BAT / "capacity"),
         "refresh_rates": rates,
+        "monitors": len(rates),
         "loadavg": os.getloadavg(),
         "uptime_s": round(float((read("/proc/uptime") or "0").split()[0])),
         "amd_panel_power_savings": read("/sys/class/drm/card1-eDP-1/amdgpu/panel_power_savings"),
@@ -485,10 +486,21 @@ def load_partial(kernel, phase):
         return {}
 
 
+MAX_LOAD = 0.6
+
+
 def phase_ac(args):
     env = environment()
     if not env["on_ac"] and not args.force:
         sys.exit("On battery: the AC phase is meant to run plugged in (--force to override).")
+    # A busy machine measures the machine's other work. The first run on
+    # 7.2.5-4-omarchy started at load 1.28 against 0.26 for the baseline, and
+    # every number came out worse -- nothing there was attributable to the
+    # kernel. Refusing is what makes the hourly timer wait for a quiet hour
+    # instead of burning the measurement.
+    if env["loadavg"][0] > MAX_LOAD and not args.force:
+        print(f"load is {env['loadavg'][0]:.2f} (limit {MAX_LOAD}): not measuring now")
+        return None
     results = load_partial(env["kernel"], "ac") if args.resume else {}
     if results:
         print(f"resuming: {len(results)} measurements already on disk", flush=True)
@@ -658,10 +670,17 @@ def cmd_list(_args):
 def cmd_compare(args):
     old = json.loads(Path(args.old).read_text())
     new = json.loads(Path(args.new).read_text())
-    for key in ("power_profile", "on_ac", "governor"):
+    for key in ("power_profile", "on_ac", "governor", "refresh_rates"):
         if old["environment"].get(key) != new["environment"].get(key):
             print(f"! {key} differs: {old['environment'].get(key)} vs {new['environment'].get(key)}"
                   " -- the comparison is not clean")
+    # The GPU and compositor tests render through the running compositor, so
+    # the number of outputs it drives, and their rates, decide those numbers
+    # as much as the kernel does.
+    old_load, new_load = old["environment"]["loadavg"][0], new["environment"]["loadavg"][0]
+    if abs(old_load - new_load) > 0.5:
+        print(f"! load average differs: {old_load:.2f} vs {new_load:.2f}"
+              " -- slower numbers on the busier run mean nothing")
     print(f"\n{'metric':34} {'old':>12} {'new':>12} {'change':>10}   kernel "
           f"{old['environment']['kernel']} -> {new['environment']['kernel']}")
     print("-" * 78)
