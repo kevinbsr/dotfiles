@@ -53,22 +53,22 @@ shopt -s nullglob
 
 HYPR_SIG="$(hypr_signature)" || HYPR_SIG=""
 
+# The two phases want opposite things -- the suite wants the charger in, the
+# suspend cycle wants it out -- so neither waits for the other. Chaining them
+# meant that unplugging for the suspend measurement also blocked it, because
+# the suite refuses to run on battery and the cycle sat behind it.
 ac_results=("$STATE/$KERNEL"-ac-*.json)
 if ((${#ac_results[@]} == 0)); then
   if [[ -z $HYPR_SIG ]]; then
     # After a reboot the greeter may still be up: no session, no GPU numbers.
     log "no live Hyprland session; leaving the AC phase for the next timer"
-    exit 0
+  elif [[ $(cat /sys/class/power_supply/ACAD/online 2>/dev/null || echo 1) != 1 ]]; then
+    log "on battery: leaving the AC phase for a run with the charger in"
+  else
+    log "AC phase starting on $KERNEL"
+    as_user "$BENCH" run --reps 3 --cargo-reps 2 --resume --label "$LABEL" >>"$LOG" 2>&1
+    log "AC phase exited with status $?"
   fi
-  log "AC phase starting on $KERNEL"
-  as_user "$BENCH" run --reps 3 --cargo-reps 2 --resume --label "$LABEL" >>"$LOG" 2>&1
-  log "AC phase exited with status $?"
-  ac_results=("$STATE/$KERNEL"-ac-*.json)
-fi
-
-if ((${#ac_results[@]} == 0)); then
-  log "AC phase still incomplete; the next timer will resume it"
-  exit 0
 fi
 
 suspend_results=("$STATE/$KERNEL"-suspend-*.json)
