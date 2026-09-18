@@ -1,5 +1,6 @@
 import QtQuick
 import Quickshell
+import Quickshell.Wayland
 import Quickshell.Services.Mpris
 import Quickshell.Services.Pipewire
 import qs.Commons
@@ -26,8 +27,8 @@ Item {
   property color foreground: Color.foreground
   property string fontFamily: Style.font.family
 
-  readonly property color dim: Qt.darker(foreground, 1.35)
-  readonly property color faint: Qt.darker(foreground, 1.7)
+  readonly property color dim: Qt.rgba(foreground.r, foreground.g, foreground.b, 0.7)
+  readonly property color faint: Qt.rgba(foreground.r, foreground.g, foreground.b, 0.52)
 
   readonly property var service: bar && bar.shell && typeof bar.shell.serviceFor === "function"
     ? bar.shell.serviceFor("kevin.hub")
@@ -46,6 +47,21 @@ Item {
   readonly property string album: hasPlayer && activePlayer.trackAlbum ? activePlayer.trackAlbum : ""
   readonly property string artUrl: hasPlayer && activePlayer.trackArtUrl ? activePlayer.trackArtUrl : ""
   readonly property string sourceName: hasPlayer ? String(activePlayer.identity || activePlayer.desktopEntry || "") : ""
+
+  readonly property var playerWindow: MediaModel.windowForPlayer(activePlayer, ToplevelManager.toplevels.values)
+  readonly property bool canFocusPlayer: hasPlayer && (!!playerWindow || activePlayer.canRaise === true)
+
+  function focusPlayer() {
+    if (!canFocusPlayer) return
+    var window = playerWindow
+    var player = activePlayer
+    if (hub) hub.close()
+    // Release the panel's keyboard focus before activating the application.
+    Qt.callLater(function() {
+      if (window) window.activate()
+      else if (player && player.canRaise) player.raise()
+    })
+  }
 
   // ---- Capability gates. Every control below is drawn only where the
   //      player admits it works; a dead slider is worse than no slider.
@@ -77,6 +93,7 @@ Item {
   // last song's progress against the new song's length.
   property real elapsed: 0
   property bool shown: false
+  property bool showRemaining: true
 
   readonly property string trackKey: hasPlayer
     ? String(activePlayer.trackTitle || "") + "\u001f" + String(activePlayer.trackAlbum || "")
@@ -197,6 +214,10 @@ Item {
     activePlayer.volume = Math.max(0, Math.min(1, value))
   }
 
+  function adjustVolume(delta) {
+    if (root.hasVolume) root.setVolume(Math.max(0, Math.min(1, root.volumeValue + delta)))
+  }
+
   function toggleMute() {
     if (root.hasStreamVolume) {
       toggleAppMute(root.activeStreams)
@@ -254,7 +275,7 @@ Item {
 
     if (dy !== 0) {
       var count = root.sourcePlayers.length
-      if (count < 2) return true
+      if (count < 2) return false
       // -1 is a real position (the transport), so the cursor walks
       // [-1, 0 .. count-1] and wraps through it rather than past it.
       var next = root.cursorIndex + dy
@@ -275,12 +296,16 @@ Item {
 
   function handleTextKey(t) {
     var key = String(t).toLowerCase()
-    if (key === "p") runAction("playPause")
+    if (key === "+" || key === "=") adjustVolume(0.05)
+    else if (key === "-" || key === "−") adjustVolume(-0.05)
+    else if (key === "p") runAction("playPause")
     else if (key === "n") runAction("next")
     else if (key === "b") runAction("previous")
     else if (key === "m") toggleMute()
+    else if (key === "o") focusPlayer()
     else if (key === "s") toggleShuffle()
     else if (key === "r") cycleLoop()
+    else if (key === "t") root.showRemaining = !root.showRemaining
     else if (key === "e") {
       // Unfold the cursored source's individual streams. Without this the
       // chevron would be the one control on the page a keyboard cannot reach.
@@ -358,258 +383,364 @@ Item {
   Column {
     id: column
     width: parent.width
-    spacing: Style.space(16)
+    spacing: Style.space(12)
 
-    // ---- Now playing. The art is the biggest thing on the page because the
-    //      bar deliberately shows none of this; the panel is where the track
-    //      actually gets looked at.
-    Row {
+    // The player is one opaque-tint content surface, with the timeline
+    // directly below its artwork and metadata. No extra backdrop blur.
+    Rectangle {
       width: parent.width
-      spacing: Style.space(16)
-
-      BorderSurface {
-        id: artFrame
-        width: Style.space(120)
-        height: Style.space(120)
-        radius: Style.spacing.labelGap
-        color: Style.normalFillFor(root.foreground, Color.accent)
-        borderSpec: Border.controlSpec("normal", root.foreground, Color.accent)
-
-        Image {
-          anchors.fill: parent
-          anchors.margins: Style.space(2)
-          fillMode: Image.PreserveAspectCrop
-          asynchronous: true
-          source: root.artUrl
-          visible: source !== ""
-        }
-
-        Text {
-          anchors.centerIn: parent
-          visible: root.artUrl === ""
-          text: "󰝚"
-          color: Qt.darker(root.foreground, 1.6)
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.displayLarge
-        }
-      }
+      height: playerContent.implicitHeight + Style.space(32)
+      radius: Style.cornerRadius
+      color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.035)
+      border.width: 1
+      border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.07)
 
       Column {
-        width: parent.width - artFrame.width - Style.space(16)
-        anchors.verticalCenter: parent.verticalCenter
-        spacing: Style.space(5)
+        id: playerContent
+        x: Style.space(16)
+        y: Style.space(16)
+        width: parent.width - Style.space(32)
+        spacing: Style.space(16)
 
-        Text {
-          text: root.title || (root.hasPlayer ? root.labelFor(root.activePlayer) : "Nothing playing")
-          color: root.foreground
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.title
-          font.bold: true
-          elide: Text.ElideRight
+        Item {
           width: parent.width
-        }
+          height: Math.max(artFrame.height, trackLabels.implicitHeight)
 
-        Text {
-          text: root.artist
-          color: root.dim
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.body
-          elide: Text.ElideRight
-          width: parent.width
-          visible: text !== ""
-        }
+          Rectangle {
+            id: artFrame
+            width: Style.space(112)
+            height: width
+            anchors.verticalCenter: parent.verticalCenter
+            color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.06)
+            radius: Style.cornerRadius
+            border.width: coverMouse.containsMouse && root.canFocusPlayer ? 1 : 0
+            border.color: Color.accent
+            Accessible.role: Accessible.Button
+            Accessible.name: "Show " + (root.sourceName || "player")
+            Accessible.onPressAction: root.focusPlayer()
 
-        Text {
-          text: root.album
-          color: root.faint
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.bodySmall
-          elide: Text.ElideRight
-          width: parent.width
-          visible: text !== ""
-        }
+            MouseArea {
+              id: coverMouse
+              anchors.fill: parent
+              z: 1
+              hoverEnabled: true
+              enabled: root.canFocusPlayer || root.hasVolume
+              acceptedButtons: Qt.LeftButton | Qt.RightButton
+              cursorShape: Qt.PointingHandCursor
+              onClicked: function(mouse) {
+                if (mouse.button === Qt.RightButton) root.toggleMute()
+                else root.focusPlayer()
+              }
+              onWheel: function(wheel) {
+                var delta = wheel.angleDelta.y !== 0 ? wheel.angleDelta.y / 120 : wheel.pixelDelta.y / 40
+                wheel.accepted = root.hasVolume && delta !== 0
+                if (wheel.accepted) root.adjustVolume(delta * 0.05)
+              }
+              PanelToolTip {
+                visible: coverMouse.containsMouse
+                text: (root.canFocusPlayer ? "Click: show " + (root.sourceName || "player") + " · O" : "")
+                  + (root.hasVolume ? (root.canFocusPlayer ? "\n" : "")
+                    + "Scroll: volume · Right-click: mute\n"
+                    + (root.volumeMuted ? "Muted" : Math.round(root.volumeValue * 100) + "%") : "")
+                fontFamily: root.fontFamily
+              }
+            }
 
-        // Which app is making the sound. Worth a line of its own: with
-        // several sources alive, "which one is this" is the question the
-        // rest of the page cannot answer at a glance.
-        Text {
-          text: root.sourceName.toUpperCase()
-          color: root.faint
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
-          font.letterSpacing: 1
-          topPadding: Style.space(2)
-          elide: Text.ElideRight
-          width: parent.width
-          visible: text !== ""
-        }
-      }
-    }
+            Image {
+              id: cover
+              anchors.fill: parent
+              source: root.artUrl
+              asynchronous: true
+              fillMode: Image.PreserveAspectFit
+              visible: status === Image.Ready
+            }
+            Text {
+              anchors.centerIn: parent
+              visible: cover.status !== Image.Ready
+              text: "󰝚"
+              color: root.faint
+              font.family: root.fontFamily
+              font.pixelSize: Style.space(48)
+            }
+          }
 
-    // ---- Transport. Shuffle and loop flank the three that every player has,
-    //      and drop out entirely on players that do not support them rather
-    //      than sitting there greyed.
-    Row {
-      anchors.horizontalCenter: parent.horizontalCenter
-      spacing: Style.space(8)
-
-      Button {
-        visible: root.hasShuffle
-        iconText: "󰒝"
-        tooltipText: root.hasPlayer && root.activePlayer.shuffle ? "Shuffling" : "Shuffle off"
-        selected: root.hasPlayer && root.activePlayer.shuffle
-        foreground: root.foreground
-        horizontalPadding: Style.spacing.controlPaddingX
-        verticalPadding: Style.spacing.controlPaddingY
-        onClicked: root.toggleShuffle()
-      }
-
-      Button {
-        iconText: "󰒮"
-        tooltipText: "Previous"
-        foreground: root.foreground
-        horizontalPadding: Style.spacing.controlPaddingX
-        verticalPadding: Style.spacing.controlPaddingY
-        enabled: root.canDo("previous")
-        opacity: enabled ? 1.0 : 0.4
-        onClicked: root.runAction("previous")
-      }
-
-      Button {
-        iconText: root.playing ? "󰏤" : "󰐊"
-        tooltipText: root.playing ? "Pause" : "Play"
-        foreground: root.foreground
-        horizontalPadding: Style.spacing.panelGap
-        verticalPadding: Style.spacing.controlPaddingY
-        iconSize: Style.font.iconLarge
-        bordered: true
-        // The transport is where the keyboard cursor rests by default, so
-        // it carries the cursor mark when nothing in the source list does.
-        hasCursor: root.cursorIndex < 0
-        enabled: root.canDo("playPause")
-        opacity: enabled ? 1.0 : 0.4
-        onClicked: root.runAction("playPause")
-      }
-
-      Button {
-        iconText: "󰒭"
-        tooltipText: "Next"
-        foreground: root.foreground
-        horizontalPadding: Style.spacing.controlPaddingX
-        verticalPadding: Style.spacing.controlPaddingY
-        enabled: root.canDo("next")
-        opacity: enabled ? 1.0 : 0.4
-        onClicked: root.runAction("next")
-      }
-
-      Button {
-        visible: root.hasLoop
-        iconText: root.loopIcon
-        tooltipText: root.loopTooltip
-        selected: root.loopActive
-        foreground: root.foreground
-        horizontalPadding: Style.spacing.controlPaddingX
-        verticalPadding: Style.spacing.controlPaddingY
-        onClicked: root.cycleLoop()
-      }
-    }
-
-    // ---- Scrubber, under the buttons that drive it. Present only where the
-    //      player reports both a length and the ability to seek, so it never
-    //      appears as decoration.
-    Item {
-      width: parent.width
-      visible: root.canSeek
-      implicitHeight: visible ? seekBar.implicitHeight + timeRow.implicitHeight : 0
-
-      PanelSlider {
-        id: seekBar
-        anchors.top: parent.top
-        anchors.left: parent.left
-        anchors.right: parent.right
-        bar: root.bar
-        minimum: 0
-        maximum: Math.max(1, root.duration)
-        value: root.elapsed
-        step: 5
-        onMoved: function(value) { /* preview only; committing every frame fights the player */ }
-        onReleased: function(value) { root.seekTo(value) }
-      }
-
-      Item {
-        id: timeRow
-        anchors.top: seekBar.bottom
-        anchors.left: parent.left
-        anchors.right: parent.right
-        implicitHeight: elapsedText.implicitHeight
-
-        Text {
-          id: elapsedText
-          anchors.left: parent.left
-          // While dragging, the number follows the knob rather than the
-          // player — otherwise the one readout that says where you are
-          // about to land is the one that will not move.
-          text: MediaModel.fmtTime(seekBar.dragging ? seekBar.liveValue : root.elapsed)
-          color: root.dim
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
-        }
-
-        Text {
-          anchors.right: parent.right
-          text: MediaModel.fmtTime(root.duration)
-          color: root.faint
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
-        }
-      }
-    }
-
-    // ---- Volume. Right-click mutes, the same secondary action the audio
-    //      panel's sliders carry, so the gesture transfers.
-    Item {
-      width: parent.width
-      visible: root.hasVolume
-      implicitHeight: visible ? volumeSlider.implicitHeight : 0
-
-      Text {
-        id: volumeIcon
-        anchors.left: parent.left
-        anchors.verticalCenter: parent.verticalCenter
-        width: Style.space(22)
-        text: root.hasPlayer ? MediaModel.volumeIcon(root.volumeValue, root.volumeMuted) : ""
-        color: root.dim
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.body
-
-        MouseArea {
-          anchors.fill: parent
-          hoverEnabled: true
-          cursorShape: Qt.PointingHandCursor
-          onClicked: root.toggleMute()
-
-          PanelToolTip {
-            visible: parent.containsMouse
-            text: root.volumeMuted ? "Unmute" : "Mute"
-            fontFamily: root.fontFamily
+          Column {
+            id: trackLabels
+            anchors.left: artFrame.right
+            anchors.leftMargin: Style.space(20)
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: Style.space(8)
+            Text {
+              width: parent.width
+              text: root.hasPlayer ? (root.playing ? "NOW PLAYING" : "PAUSED") : "YOUR MUSIC"
+              color: root.playing ? Color.accent : root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              font.letterSpacing: 1.2
+            }
+            Text {
+              width: parent.width
+              text: root.title || (root.hasPlayer ? root.labelFor(root.activePlayer) : "Nothing playing")
+              color: root.foreground
+              font.family: root.fontFamily
+              font.pixelSize: Style.space(20)
+              font.weight: Font.DemiBold
+              wrapMode: Text.Wrap
+              maximumLineCount: 2
+              elide: Text.ElideRight
+            }
+            Text {
+              width: parent.width
+              text: root.artist || (!root.hasPlayer ? "Open a player to start listening." : "")
+              visible: text !== ""
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.body
+              wrapMode: Text.Wrap
+              maximumLineCount: 2
+              elide: Text.ElideRight
+            }
+            Text {
+              width: parent.width
+              text: root.album
+              visible: text !== ""
+              color: root.faint
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.bodySmall
+              elide: Text.ElideRight
+            }
+            Text {
+              width: parent.width
+              text: root.sourceName
+              visible: text !== ""
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              elide: Text.ElideRight
+            }
           }
         }
-      }
+        // ---- Scrubber, under the buttons that drive it. Present only where the
+        //      player reports both a length and the ability to seek, so it never
+        //      appears as decoration.
+        Item {
+          width: parent.width
+          visible: root.canSeek
+          implicitHeight: visible ? seekBar.implicitHeight + timeRow.implicitHeight : 0
 
-      PanelSlider {
-        id: volumeSlider
-        anchors.left: volumeIcon.right
-        anchors.leftMargin: Style.space(8)
-        anchors.right: parent.right
-        anchors.verticalCenter: parent.verticalCenter
-        bar: root.bar
-        minimum: 0
-        maximum: 1
-        step: 0.05
-        value: root.volumeValue
-        onMoved: function(value) { root.setVolume(value) }
-        onReleased: function(value) { root.setVolume(value) }
-        onRightClicked: root.toggleMute()
+          PanelSlider {
+            id: seekBar
+            anchors.top: parent.top
+            anchors.left: parent.left
+            anchors.right: parent.right
+            bar: root.bar
+            minimum: 0
+            maximum: Math.max(1, root.duration)
+            value: root.elapsed
+            step: 5
+            onMoved: function(value) { /* preview only; committing every frame fights the player */ }
+            onReleased: function(value) { root.seekTo(value) }
+          }
+
+          Item {
+            id: timeRow
+            anchors.top: seekBar.bottom
+            anchors.left: parent.left
+            anchors.right: parent.right
+            implicitHeight: elapsedText.implicitHeight
+
+            Text {
+              id: elapsedText
+              anchors.left: parent.left
+              // While dragging, the number follows the knob rather than the
+              // player — otherwise the one readout that says where you are
+              // about to land is the one that will not move.
+              text: MediaModel.fmtTime(seekBar.dragging ? seekBar.liveValue : root.elapsed)
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+            }
+
+            Text {
+              anchors.right: parent.right
+              text: root.showRemaining
+                ? "−" + MediaModel.fmtTime(Math.max(0, root.duration - (seekBar.dragging ? seekBar.liveValue : root.elapsed)))
+                : MediaModel.fmtTime(root.duration)
+              MouseArea {
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: root.showRemaining = !root.showRemaining
+                PanelToolTip {
+                  visible: parent.containsMouse
+                  text: root.showRemaining ? "Show total duration · T" : "Show remaining time · T"
+                  fontFamily: root.fontFamily
+                }
+              }
+              color: root.faint
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+            }
+          }
+        }
+
+        // ---- Transport. Shuffle and loop flank the three that every player has,
+        //      and drop out entirely on players that do not support them rather
+        //      than sitting there greyed.
+        Row {
+          visible: root.hasPlayer
+          anchors.horizontalCenter: parent.horizontalCenter
+          spacing: Style.space(8)
+
+          Button {
+            visible: root.hasShuffle
+            anchors.verticalCenter: parent.verticalCenter
+            iconText: "󰒝"
+            tooltipText: root.hasPlayer && root.activePlayer.shuffle ? "Shuffling" : "Shuffle off"
+            selected: root.hasPlayer && root.activePlayer.shuffle
+            foreground: root.foreground
+            horizontalPadding: Style.spacing.controlPaddingX
+            verticalPadding: Style.spacing.controlPaddingY
+            onClicked: root.toggleShuffle()
+          }
+
+          Button {
+            visible: root.canSeek
+            anchors.verticalCenter: parent.verticalCenter
+            text: "−10"
+            tooltipText: "Back 10 seconds"
+            foreground: root.dim
+            onClicked: root.seekBy(-10)
+          }
+
+          Button {
+            anchors.verticalCenter: parent.verticalCenter
+            iconText: "󰒮"
+            tooltipText: "Previous"
+            foreground: root.foreground
+            horizontalPadding: Style.spacing.controlPaddingX
+            verticalPadding: Style.spacing.controlPaddingY
+            enabled: root.canDo("previous")
+            opacity: enabled ? 1.0 : 0.4
+            onClicked: root.runAction("previous")
+          }
+
+          Button {
+            anchors.verticalCenter: parent.verticalCenter
+            iconText: root.playing ? "󰏤" : "󰐊"
+            tooltipText: root.playing ? "Pause · Space" : "Play · Space"
+            foreground: root.foreground
+            horizontalPadding: Style.space(22)
+            verticalPadding: Style.spacing.controlPaddingY
+            iconSize: Style.space(28)
+            selected: true
+            accent: Color.accent
+            radius: Style.cornerRadius
+            bordered: false
+            // The transport is where the keyboard cursor rests by default, so
+            // it carries the cursor mark when nothing in the source list does.
+            hasCursor: root.cursorIndex < 0
+            enabled: root.canDo("playPause")
+            opacity: enabled ? 1.0 : 0.4
+            onClicked: root.runAction("playPause")
+          }
+
+          Button {
+            anchors.verticalCenter: parent.verticalCenter
+            iconText: "󰒭"
+            tooltipText: "Next"
+            foreground: root.foreground
+            horizontalPadding: Style.spacing.controlPaddingX
+            verticalPadding: Style.spacing.controlPaddingY
+            enabled: root.canDo("next")
+            opacity: enabled ? 1.0 : 0.4
+            onClicked: root.runAction("next")
+          }
+
+          Button {
+            visible: root.canSeek
+            anchors.verticalCenter: parent.verticalCenter
+            text: "+10"
+            tooltipText: "Forward 10 seconds"
+            foreground: root.dim
+            onClicked: root.seekBy(10)
+          }
+
+          Button {
+            visible: root.hasLoop
+            anchors.verticalCenter: parent.verticalCenter
+            iconText: root.loopIcon
+            tooltipText: root.loopTooltip
+            selected: root.loopActive
+            foreground: root.foreground
+            horizontalPadding: Style.spacing.controlPaddingX
+            verticalPadding: Style.spacing.controlPaddingY
+            onClicked: root.cycleLoop()
+          }
+        }
+
+        // ---- Volume. Right-click mutes, the same secondary action the audio
+        //      panel's sliders carry, so the gesture transfers.
+        Item {
+          width: parent.width
+          visible: root.hasVolume
+          implicitHeight: visible ? volumeSlider.implicitHeight : 0
+
+          Text {
+            id: volumeIcon
+            anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
+            width: Style.space(22)
+            text: root.hasPlayer ? MediaModel.volumeIcon(root.volumeValue, root.volumeMuted) : ""
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.body
+
+            MouseArea {
+              anchors.fill: parent
+              hoverEnabled: true
+              cursorShape: Qt.PointingHandCursor
+              onClicked: root.toggleMute()
+
+              PanelToolTip {
+                visible: parent.containsMouse
+                text: root.volumeMuted ? "Unmute" : "Mute"
+                fontFamily: root.fontFamily
+              }
+            }
+          }
+
+          Text {
+            id: volumePercent
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            width: Style.space(42)
+            horizontalAlignment: Text.AlignRight
+            text: root.volumeMuted ? "Mute" : Math.round(root.volumeValue * 100) + "%"
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+          }
+
+          PanelSlider {
+            id: volumeSlider
+            anchors.left: volumeIcon.right
+            anchors.leftMargin: Style.space(8)
+            anchors.right: volumePercent.left
+            anchors.rightMargin: Style.space(12)
+            anchors.verticalCenter: parent.verticalCenter
+            bar: root.bar
+            minimum: 0
+            maximum: 1
+            step: 0.05
+            value: root.volumeValue
+            onMoved: function(value) { root.setVolume(value) }
+            onReleased: function(value) { root.setVolume(value) }
+            onRightClicked: root.toggleMute()
+          }
+        }
+
       }
     }
 
@@ -617,7 +748,7 @@ Item {
     PanelSectionHeader {
       visible: root.sourcePlayers.length > 1
       width: parent.width
-      text: "SOURCES"
+      text: "AUDIO SOURCES · " + root.sourcePlayers.length
       foreground: root.foreground
       fontFamily: root.fontFamily
     }
@@ -639,10 +770,11 @@ Item {
           readonly property var player: modelData
           readonly property bool selected: root.activePlayer === player
           readonly property bool cursored: root.cursorIndex === index
+          onCursoredChanged: if (cursored) Qt.callLater(function() {
+            if (root.hub) root.hub.ensureActiveRectVisible(sourceList.y + sourceEntry.y, sourceRow.height)
+          })
           readonly property string sourceTitle: root.labelFor(player)
-          readonly property string sourceDetail: player && player.trackArtist
-            ? player.trackArtist
-            : (player && player.identity ? player.identity : "")
+          readonly property string sourceDetail: [player ? player.identity : "", player ? player.trackArtist : ""].filter(function(s) { return !!s }).join(" · ")
           readonly property var streams: root.streamsFor(player)
           readonly property string entryKey: root.playerKey(player)
           readonly property bool expandable: streams.length > 1
@@ -654,10 +786,10 @@ Item {
           BorderSurface {
             id: sourceRow
             width: parent.width
-            height: sourceInner.implicitHeight + Style.space(10)
-            radius: Style.spacing.labelGap
+            height: sourceInner.implicitHeight + Style.space(20)
+            radius: Style.cornerRadius
             color: sourceEntry.selected
-              ? Style.selectedFillFor(root.foreground, Color.accent)
+              ? Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.10)
               : (sourceEntry.cursored || sourceMouse.containsMouse
                 ? Style.hoverFillFor(root.foreground, Color.accent)
                 : "transparent")

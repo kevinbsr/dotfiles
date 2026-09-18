@@ -267,9 +267,23 @@ function stepMonth(year, month, delta) {
   return { year: target.getFullYear(), month: target.getMonth() }
 }
 
+// Compare calendar dates, not elapsed hours: DST days may have 23 or 25 hours.
+function calendarDayDistance(from, to) {
+  return Math.round((Date.UTC(to.getFullYear(), to.getMonth(), to.getDate())
+    - Date.UTC(from.getFullYear(), from.getMonth(), from.getDate())) / 86400000)
+}
+
+function shiftCalendarMonth(date, delta) {
+  var target = new Date(date.getFullYear(), date.getMonth() + delta, 1, 12)
+  var lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0, 12).getDate()
+  return new Date(target.getFullYear(), target.getMonth(), Math.min(date.getDate(), lastDay), 12)
+}
+
 if (typeof module !== "undefined") {
   module.exports = {
     dateKey: dateKey,
+    calendarDayDistance: calendarDayDistance,
+    shiftCalendarMonth: shiftCalendarMonth,
     keyForDate: keyForDate,
     normalizedWeekStart: normalizedWeekStart,
     weekStartSettingName: weekStartSettingName,

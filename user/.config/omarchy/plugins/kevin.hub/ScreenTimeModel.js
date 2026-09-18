@@ -41,6 +41,20 @@ function canonicalApp(name) {
     : key
 }
 
+function displayName(name) {
+  var value = String(name || "").replace(/\.desktop$/i, "")
+  if (/^web\./i.test(value)) value = value.split(".")[1] || value
+  else if (/^(org|com|io|net)\./i.test(value)) {
+    var reverseParts = value.split(".")
+    value = reverseParts[reverseParts.length - 1] || value
+  } else value = value.replace(/\.(com|org|net)$/i, "")
+  value = value.replace(/[_-]+/g, " ").trim()
+  if (!value) return "Unknown app"
+  return value.split(/\s+/).map(function(part) {
+    return part.charAt(0).toUpperCase() + part.slice(1)
+  }).join(" ")
+}
+
 // Local-time calendar key, e.g. "2026-08-13".
 function dayKey(date) {
   return date.getFullYear() + "-" + pad2(date.getMonth() + 1) + "-" + pad2(date.getDate())
@@ -140,6 +154,64 @@ function prevKey(key) {
   if (isNaN(d.getTime())) return ""
   d.setDate(d.getDate() - 1)
   return dayKey(d)
+}
+
+function shiftKey(key, delta) {
+  if (!key) return ""
+  var parts = String(key).split("-")
+  if (parts.length !== 3) return ""
+  var d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]), 12)
+  if (isNaN(d.getTime())) return ""
+  d.setDate(d.getDate() + Number(delta || 0))
+  return dayKey(d)
+}
+
+function dayFor(days, today, key, todayKey) {
+  if (key === todayKey) return today || newDay()
+  var day = days && days[key]
+  return day && typeof day === "object" ? day : newDay()
+}
+
+function averagePreviousDays(days, todayKey, count) {
+  var total = 0
+  var samples = 0
+  var key = todayKey
+  for (var i = 0; i < count; i++) {
+    key = prevKey(key)
+    if (days && Object.prototype.hasOwnProperty.call(days, key)) {
+      total += totalFor(days, key)
+      samples++
+    }
+  }
+  return samples > 0 ? total / samples : 0
+}
+
+function comparisonText(total, average) {
+  var current = Math.max(0, Number(total) || 0)
+  var baseline = Math.max(0, Number(average) || 0)
+  if (baseline <= 0) return "Building a 7-day baseline"
+  var delta = current - baseline
+  if (Math.abs(delta) < Math.max(10 * 60000, baseline * 0.05)) return "Close to the 7-day average"
+  return fmt(Math.abs(delta)) + (delta > 0 ? " above" : " below") + " the 7-day average"
+}
+
+function historyRows(days, today, todayKey) {
+  var found = {}
+  var keys = []
+  for (var key in (days || {})) {
+    if (!Object.prototype.hasOwnProperty.call(days, key)) continue
+    if (totalFor(days, key) <= 0) continue
+    found[key] = true
+    keys.push(key)
+  }
+  if (todayKey && today && Number(today.total) > 0 && !found[todayKey]) keys.push(todayKey)
+  keys.sort().reverse()
+  var rows = []
+  for (var i = 0; i < keys.length; i++) {
+    var day = dayFor(days, today, keys[i], todayKey)
+    rows.push({ key: keys[i], ms: Number(day.total) || 0 })
+  }
+  return rows
 }
 
 // Weekday label for a dayKey relative to today: "Today", "Yesterday", or
@@ -344,6 +416,7 @@ if (typeof module !== "undefined" && module && module.exports) {
   module.exports = {
     pad2: pad2,
     canonicalApp: canonicalApp,
+    displayName: displayName,
     dayKey: dayKey,
     newDay: newDay,
     fmt: fmt,
@@ -352,6 +425,11 @@ if (typeof module !== "undefined" && module && module.exports) {
     appList: appList,
     totalFor: totalFor,
     prevKey: prevKey,
+    shiftKey: shiftKey,
+    dayFor: dayFor,
+    averagePreviousDays: averagePreviousDays,
+    comparisonText: comparisonText,
+    historyRows: historyRows,
     relativeDayLabel: relativeDayLabel,
     weekKeys: weekKeys,
     busiestWeekDay: busiestWeekDay,

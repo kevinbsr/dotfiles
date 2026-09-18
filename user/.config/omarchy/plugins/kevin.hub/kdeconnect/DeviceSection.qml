@@ -30,6 +30,7 @@ Column {
 
             Button {
                 id: refreshButton
+                height: Style.space(32)
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
                 enabled: !root.service || !root.service.scanning
@@ -79,7 +80,7 @@ Column {
                     spacing: Style.space(6)
 
                     Text {
-                        text: root.service ? ((root.device.capabilities && root.device.capabilities.battery) ? root.service.deviceBatteryIcon(root.device) : root.service.deviceNetworkIcon(root.device)) : ""
+                        text: root.service && root.device ? ((root.device.capabilities && root.device.capabilities.battery) ? root.service.deviceBatteryIcon(root.device) : root.service.deviceNetworkIcon(root.device)) : ""
                         color: (root.device && root.device.capabilities && root.device.capabilities.battery && root.device.battery >= 0 && root.device.battery <= 20 && !(root.device.isCharging || root.device.charging))
                             ? Color.urgent
                             : ((root.device && (root.device.isCharging || root.device.charging)) ? Color.accent : root.foreground)

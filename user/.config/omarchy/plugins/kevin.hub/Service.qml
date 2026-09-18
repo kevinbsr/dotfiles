@@ -9,6 +9,9 @@ Item {
   id: root
 
   property var shell: null
+  readonly property alias integrations: integrationHost
+
+  HubIntegrations { id: integrationHost; hubService: root }
 
   // The hub's open tab, shared by every monitor's copy of the panel. There is
   // one bar -- so one Panel.qml -- per monitor, and they used to agree on the
@@ -509,6 +512,61 @@ Item {
     }
   }
 
+  // --- Disk space -----------------------------------------------------------
+  // A filesystem filling up is a state, not an event: it belongs in the bar
+  // while it lasts, not in a notification every ten minutes. The poll lives
+  // here, in the one service the whole shell shares, so it runs once no matter
+  // how many screens draw the bar.
+  //
+  // Percentages are df's: used over used+available, the space that can still be
+  // written. Dividing by the device size counts chunks btrfs has allocated and
+  // will not hand out -- that is why this panel used to read 90% while df and
+  // the old alert said 91% for the same filesystem.
+  property var diskMounts: ["/", "/home"]
+  property int diskWarnPercent: 90
+  property int diskCriticalPercent: 97
+  // [{ mount, percent, availGib }], worst first, only those over the warning.
+  property var diskAlerts: []
+  readonly property var diskWorst: diskAlerts.length > 0 ? diskAlerts[0] : null
+  readonly property bool diskCritical: diskWorst ? diskWorst.percent >= diskCriticalPercent : false
+
+  function diskSummary() {
+    if (diskAlerts.length === 0) return ""
+    return diskAlerts.map(function(a) {
+      return a.mount + " " + a.percent + "% · " + a.availGib + " GiB free"
+    }).join("\n")
+  }
+
+  Process {
+    id: diskProbe
+    command: ["sh", "-c",
+      "df -P -B1 " + root.diskMounts.map(function(m) { return "'" + m + "'" }).join(" ") +
+      " 2>/dev/null | awk 'NR>1 { used=$3; avail=$4; usable=used+avail;" +
+      " if (usable>0) printf \"%s %d %.1f\\n\", $6, int(100*used/usable+0.999999), avail/1073741824 }'"]
+    stdout: StdioCollector {
+      onStreamFinished: {
+        var found = []
+        String(text || "").trim().split("\n").forEach(function(line) {
+          var parts = line.trim().split(/\s+/)
+          if (parts.length !== 3) return
+          var percent = parseInt(parts[1], 10)
+          if (isNaN(percent) || percent < root.diskWarnPercent) return
+          found.push({ mount: parts[0], percent: percent, availGib: parts[2] })
+        })
+        found.sort(function(a, b) { return b.percent - a.percent })
+        root.diskAlerts = found
+      }
+    }
+  }
+
+  Timer {
+    interval: 120000
+    running: true
+    repeat: true
+    triggeredOnStart: true
+    onTriggered: if (!diskProbe.running) diskProbe.running = true
+  }
+
   Timer {
     id: trackOsdTimer
     interval: 120
@@ -536,8 +594,63 @@ Item {
     })
   }
 
+  // IPC lives on the singleton service rather than on BarWidget.qml. There is
+  // one widget per monitor, and registering the same target from each copy
+  // made whichever monitor loaded first win. The current panel host already
+  // knows which bar/screen owns the shared panel, so it is the stable route.
+  function hubHost() {
+    return root.panelHost || root.settingsHub
+  }
+
+  function refreshHub() {
+    var host = root.hubHost()
+    if (host && typeof host.refresh === "function") host.refresh()
+  }
+
+  function openHubTab(name, toggleOnly) {
+    var host = root.hubHost()
+    if (!host) return
+    if (toggleOnly && typeof host.toggleTab === "function") host.toggleTab(name)
+    else if (typeof host.openTab === "function") host.openTab(name)
+  }
+
   IpcHandler {
-    target: "media"
+    target: "kevin.hub"
+
+    function refresh(): void { root.refreshHub() }
+    function cycleFormat(): void {
+      var host = root.hubHost()
+      if (host && typeof host.cycleFormat === "function") host.cycleFormat()
+    }
+    function toggleWeekStart(): void {
+      var host = root.hubHost()
+      if (host && typeof host.toggleWeekStart === "function") host.toggleWeekStart()
+    }
+    function open(): void {
+      var host = root.hubHost()
+      if (host && typeof host.open === "function") host.open()
+    }
+    function close(): void {
+      var host = root.hubHost()
+      if (host && typeof host.close === "function") host.close()
+    }
+    function show(): void { open() }
+    function hide(): void { close() }
+    function toggle(): void {
+      var host = root.hubHost()
+      if (host && typeof host.togglePanel === "function") host.togglePanel()
+    }
+    function tab(name: string): void { root.openHubTab(name, false) }
+    function tabToggle(name: string): void { root.openHubTab(name, true) }
+    function refreshWeather(): void {
+      if (root.weather && typeof root.weather.refresh === "function") root.weather.refresh()
+    }
+  }
+
+  IpcHandler {
+    // The shell's built-in media service owns `media`. Keep the Hub's richer
+    // source-selection endpoint namespaced so both handlers stay reachable.
+    target: "kevin.hub.media"
 
     function status(): string {
       return root.statusJson()

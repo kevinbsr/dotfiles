@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "id": "kevin.hub",
   "name": "Hub",
-  "version": "1.0.0",
-  "author": "Kevin",
-  "description": "Date/time label on the bar, with a tabbed panel holding calendar and media",
+  "version": "1.2.0",
+  "author": "Kevin Benevides",
+  "description": "Clock and weather on the bar; a unified hub for calendar, media, weather, screen time, phone, nearby sharing and system monitoring",
   "kinds": [
     "service",
     "bar-widget"
@@ -16,7 +16,7 @@
   },
   "barWidget": {
     "displayName": "Hub",
-    "description": "Clock label with a tabbed panel: calendar, media",
+    "description": "Seven-page hub with sidebar navigation and keyboard shortcuts",
     "category": "Time",
     "allowMultiple": false
   }

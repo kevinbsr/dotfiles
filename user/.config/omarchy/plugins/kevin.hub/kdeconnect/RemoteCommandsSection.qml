@@ -62,6 +62,7 @@ Column {
         }
         Button {
             id: refreshCmdBtn
+            height: Style.space(32)
             visible: panel.commandsExpanded
             iconText: "󰑐"
             tooltipText: "Refresh commands"
@@ -114,12 +115,15 @@ Column {
                 Text {
                     id: cmdBtnText
                     anchors.left: parent.left
+                    anchors.right: parent.right
                     anchors.leftMargin: Style.space(8)
+                    anchors.rightMargin: Style.space(8)
                     anchors.verticalCenter: parent.verticalCenter
                     text: modelData.name
                     color: root.foreground
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.bodySmall
+                    elide: Text.ElideRight
                 }
             }
         }

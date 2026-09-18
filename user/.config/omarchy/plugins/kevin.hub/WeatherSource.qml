@@ -33,6 +33,17 @@ Item {
   property var report: null
   property var dailyForecastReport: null
   property string wttrLocation: ""
+  property double reportUpdatedAt: 0
+  property double dailyUpdatedAt: 0
+  property double lastRefreshAttempt: 0
+  property bool forecastFailed: false
+  property bool dailyFailed: false
+  readonly property double updatedAt: current === openMeteoCurrent ? dailyUpdatedAt : reportUpdatedAt
+  readonly property bool refreshing: dailyForecastProc.running || (!current && (forecastProc.running || ipLocationProc.running))
+  readonly property bool refreshFailed: current === openMeteoCurrent && current ? dailyFailed : (forecastFailed && (dailyFailed || !current))
+  readonly property bool searchingLocation: geocodeProc.running || geocodeDebounce.running
+  property bool searchCompleted: false
+  property string locationError: ""
 
   // Auto-detected position from the public IP (ipinfo.io), used when no location
   // is configured. Before this, auto-detect depended entirely on wttr.in: it
@@ -50,10 +61,16 @@ Item {
   readonly property string configuredLocation: configuredLocationState.name
   readonly property string locationQuery: WeatherModel.wttrLocationQuery(configuredLocationState.name, configuredLocationState.latitude, configuredLocationState.longitude)
 
-  // Keep the previous report visible while the new location loads. The
-  // editor remains open with a spinner, so stale data is never presented
-  // under the newly configured location label.
+  // A location change invalidates both reports before the next request.
   onLocationQueryChanged: {
+    // Never label the previous city's cached weather as the new location.
+    report = null
+    label = ""
+    dailyForecastReport = null
+    reportUpdatedAt = 0
+    dailyUpdatedAt = 0
+    forecastRetryTimer.stop()
+    dailyForecastRetryTimer.stop()
     if (savingLocation) savingLocationQueryStarted = true
     forecastRetries = 0
     dailyForecastRetries = 0
@@ -103,7 +120,10 @@ Item {
   readonly property var openMeteoCurrent: WeatherModel.openMeteoCurrentCondition(dailyForecastReport)
   readonly property var current: (hasConfiguredCoordinates && openMeteoCurrent) ? openMeteoCurrent : ((report && report.current_condition && report.current_condition[0]) ? report.current_condition[0] : openMeteoCurrent)
   readonly property var areaInfo: report && report.nearest_area && report.nearest_area[0] ? report.nearest_area[0] : null
-  readonly property var forecastDays: WeatherModel.buildForecastDays(report, dailyForecastReport, Qt.formatDate(new Date(), "yyyy-MM-dd"))
+  SystemClock { id: forecastClock; precision: SystemClock.Minutes }
+  readonly property string forecastDate: WeatherModel.forecastLocalDate(dailyForecastReport, forecastClock.date.getTime(), Qt.formatDate(forecastClock.date, "yyyy-MM-dd"))
+  readonly property var todayExtras: WeatherModel.dailyExtras(dailyForecastReport, forecastDate)
+  readonly property var forecastDays: WeatherModel.buildForecastDays(report, dailyForecastReport, forecastDate)
   // Country decides metric/imperial when no unit is set. Without a wttr.in
   // report the IP lookup's country code stands in; otherwise the en_US system
   // locale turned Brazil's weather into °F (2026-09-15).
@@ -122,6 +142,9 @@ Item {
   readonly property string reportHumidity:  current ? (current.humidity + "%") : ""
 
   function refresh() {
+    lastRefreshAttempt = Date.now()
+    forecastFailed = false
+    dailyFailed = false
     // Each full refresh cycle gets a fresh retry budget, so an earlier
     // exhausted round (e.g. waking with the network still down) doesn't
     // starve retries for the rest of the session.
@@ -156,7 +179,7 @@ Item {
     var url = "https://api.open-meteo.com/v1/forecast"
       + "?latitude=" + encodeURIComponent(String(lat))
       + "&longitude=" + encodeURIComponent(String(lon))
-      + "&daily=weather_code,temperature_2m_max,temperature_2m_min"
+      + "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,rain_sum,showers_sum,uv_index_max,sunrise,sunset"
       + "&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code,is_day"
       + "&forecast_days=4"
       + "&timezone=auto"
@@ -169,6 +192,8 @@ Item {
   //      through omarchy-weather-location. An empty commit returns to auto.
   function startEditingLocation() {
     editingLocation = true
+    locationError = ""
+    searchCompleted = false
     savingLocation = false
     savingLocationQueryStarted = false
     locationSuggestions = []
@@ -181,6 +206,8 @@ Item {
     savingLocationQueryStarted = false
     locationSuggestions = []
     geocodeDebounce.stop()
+    geocodePendingQuery = ""
+    locationError = ""
     root.editingFinished()
   }
 
@@ -193,6 +220,10 @@ Item {
   // Takes the field text rather than reaching for it: the field belongs to
   // the tab, and this object outlives it.
   function commitLocation(text) {
+    if (String(text || "").trim() !== "" && (searchingLocation || locationSuggestions.length === 0)) {
+      locationError = "Choose a city from the search results."
+      return
+    }
     var location = WeatherModel.locationCommit(text, locationSuggestions, suggestionIndex)
     if (location.name === "") {
       clearLocation()
@@ -254,10 +285,14 @@ Item {
 
   function queueGeocode(text) {
     geocodePendingQuery = String(text || "").trim()
+    locationSuggestions = []
+    locationError = ""
+    searchCompleted = false
     geocodeDebounce.restart()
   }
 
   function startGeocode() {
+    if (!editingLocation || geocodePendingQuery.length < 2 || geocodeProc.running) return
     geocodeActiveQuery = geocodePendingQuery
     geocodeProc.command = ["curl", "-fsS", "--max-time", "5",
       "https://geocoding-api.open-meteo.com/v1/search?name=" + encodeURIComponent(geocodeActiveQuery) + "&count=5&language=en&format=json"]
@@ -284,10 +319,13 @@ Item {
 
   Process {
     id: forecastProc
+    property string requestedLocation: ""
+    onRunningChanged: if (running) requestedLocation = root.locationQuery
     command: ["curl", "-fsS", "--max-time", "10", "https://wttr.in/" + root.locationQuery + "?format=j1"]
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
+        if (forecastProc.requestedLocation !== root.locationQuery) return
         var raw = String(text || "").trim()
         if (!raw) {
           root.scheduleForecastRetry()
@@ -295,7 +333,10 @@ Item {
         }
         try {
           var parsed = JSON.parse(raw)
+          if (!parsed.current_condition || !parsed.current_condition[0]) throw new Error("Missing current weather")
           root.report = parsed
+          root.reportUpdatedAt = Date.now()
+          root.forecastFailed = false
           if (!root.hasConfiguredCoordinates)
             root.label = WeatherModel.provisionalCurrentIcon(parsed.current_condition && parsed.current_condition[0], root.label)
           root.forecastRetries = 0
@@ -316,7 +357,14 @@ Item {
   // wttr.in can be slow or flaky, especially for a location it hasn't
   // cached yet. Retry a few times before leaving it to the refresh timer.
   function scheduleForecastRetry() {
-    if (forecastRetries >= 3) return
+    forecastFailed = true
+    if (forecastRetries >= 3) {
+      if (savingLocation && !hasConfiguredCoordinates && !openMeteoCurrent) {
+        savingLocation = false
+        locationError = "City saved, but weather is unavailable. Try refreshing later."
+      }
+      return
+    }
     forecastRetries++
     forecastRetryTimer.restart()
   }
@@ -331,7 +379,14 @@ Item {
   // bar icon, so a dropped response (e.g. waking before the network is back)
   // must retry rather than wait out the refresh timer with a stale icon.
   function scheduleDailyForecastRetry() {
-    if (dailyForecastRetries >= 3) return
+    dailyFailed = true
+    if (dailyForecastRetries >= 3) {
+      if (savingLocation && hasConfiguredCoordinates) {
+        savingLocation = false
+        locationError = "City saved, but weather is unavailable. Try refreshing later."
+      }
+      return
+    }
     dailyForecastRetries++
     dailyForecastRetryTimer.restart()
   }
@@ -344,9 +399,12 @@ Item {
 
   Process {
     id: dailyForecastProc
+    property string requestedLocation: ""
+    onRunningChanged: if (running) requestedLocation = root.locationQuery
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
+        if (dailyForecastProc.requestedLocation !== root.locationQuery) return
         var raw = String(text || "").trim()
         if (!raw) {
           root.scheduleDailyForecastRetry()
@@ -355,7 +413,10 @@ Item {
         try {
           var parsed = JSON.parse(raw)
           var parsedCurrent = WeatherModel.openMeteoCurrentCondition(parsed)
+          if (!parsedCurrent || !parsed.daily || !parsed.daily.time) throw new Error("Incomplete forecast")
           root.dailyForecastReport = parsed
+          root.dailyUpdatedAt = Date.now()
+          root.dailyFailed = false
           root.label = WeatherModel.currentIcon(parsedCurrent, root.label)
           root.dailyForecastRetries = 0
           if (WeatherModel.weatherResponseCompletesSave(root.hasConfiguredCoordinates, "open-meteo"))
@@ -370,12 +431,23 @@ Item {
 
   Process {
     id: geocodeProc
+    onExited: if (root.editingLocation && root.geocodePendingQuery !== root.geocodeActiveQuery)
+      Qt.callLater(root.startGeocode)
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
-        root.locationSuggestions = root.editingLocation ? WeatherModel.parseGeocodingResults(text) : []
+        if (!root.editingLocation) return
+        if (root.geocodePendingQuery !== root.geocodeActiveQuery) return
+        try {
+          var response = JSON.parse(text)
+          if (response.error) throw new Error("Search failed")
+          root.locationSuggestions = WeatherModel.parseGeocodingResults(text)
+          root.searchCompleted = true
+        } catch (error) {
+          root.locationSuggestions = []
+          root.locationError = "City search failed. Check the connection and try again."
+        }
         root.suggestionIndex = 0
-        if (root.geocodePendingQuery !== root.geocodeActiveQuery) Qt.callLater(root.startGeocode)
       }
     }
   }
@@ -389,7 +461,13 @@ Item {
   Process {
     id: locationSaveProc
     onExited: function(exitCode) {
-      if (exitCode !== 0 || !root.savingLocation) return
+      if (exitCode !== 0) {
+        root.savingLocation = false
+        root.locationError = "Could not save the city. Try again."
+        root.locationFile.reload()
+        return
+      }
+      if (!root.savingLocation) return
 
       // FileView handles changed locations. Explicitly refresh here too so
       // saving the already-active location cannot strand the spinner.

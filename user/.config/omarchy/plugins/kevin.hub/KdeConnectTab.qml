@@ -13,10 +13,8 @@ import "kdeconnect"
 // revision, plus the hub's tab contract on top.
 //
 // Copied rather than imported across plugins, because `panel.*` is
-// upstream's internal contract and a release is free to change it. The one
-// dependency left is `serviceFor("omaconnect")` — a published wrapper of
-// aliases that its own bar widget uses, and whose changes have been
-// additive. That plugin therefore stays installed, as a service.
+// upstream's internal contract and a release is free to change it. The engine remains installed upstream and is loaded once by
+// HubIntegrations.qml, within the Hub service.
 Item {
   id: root
 
@@ -28,11 +26,19 @@ Item {
 
   // ---- The surface the vendored sections bind to. Names are upstream's;
   //      changing one breaks them.
-  readonly property var service: bar && bar.shell && typeof bar.shell.serviceFor === "function"
-    ? bar.shell.serviceFor("omaconnect")
+  readonly property var service: hub && hub.hubService && hub.hubService.integrations
+    ? hub.hubService.integrations.phone
     : null
   readonly property var device: service ? service.selectedDevice : null
   readonly property string deviceName: device && typeof device.name === "string" ? device.name : "KDE Connect"
+  readonly property string deviceId: device ? String(device.id || "") : ""
+  onDeviceIdChanged: {
+    if (unpairConfirmingId) cancelUnpairConfirm(unpairConfirmingId)
+    resetComposer()
+    commandsExpanded = false
+    commandSelectedIndex = 0
+    focusSection = "devices"
+  }
 
   property string activeComposer: "none"
   property string draftPing: ""
@@ -70,6 +76,11 @@ Item {
     } else {
       actionSelectedIndex = 0
       if (focusSection === "actions") focusSection = "devices"
+    }
+    if (activeComposer !== "none" && acts.indexOf(activeComposer) < 0) {
+      resetComposer()
+      focusSection = "devices"
+      if (hub) hub.focusKeyCatcher()
     }
   }
 
@@ -363,7 +374,8 @@ Item {
             service.pairDevice(dev.id)
           }
         } else if (pending !== "removing") {
-          root.requestUnpairConfirm(dev.id)
+          if (root.availableActions.length > 0) { root.focusSection = "actions"; root.actionSelectedIndex = 0 }
+          else if (root.hasCommands()) root.focusSection = "commands"
         }
       }
     } else if (focusSection === "refresh") {
@@ -398,6 +410,7 @@ Item {
   }
 
   function handleTextKey(t) {
+    if (!root.service && String(t).toLowerCase() === "a") { phoneSetup.activate(); return true }
     if (root.activeComposer !== "none") return false
     var key = String(t).toLowerCase()
 
@@ -495,9 +508,47 @@ Item {
     width: parent.width
     spacing: Style.space(12)
 
-    DeviceSection {
-      id: deviceSection
-      panel: root
+    Column {
+      visible: !root.service
+      width: parent.width
+      spacing: Style.space(16)
+      Text {
+        text: "Connect your phone"
+        color: root.foreground
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.title
+      }
+      Text {
+        width: parent.width
+        text: phoneSetup.configuredEnabled ? "Loading your devices…" : "Enable phone integration, then open KDE Connect on your phone. Keep both devices on the same network to pair them."
+        wrapMode: Text.WordWrap
+        color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.7)
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.body
+      }
+      IntegrationSetup {
+        id: phoneSetup
+        width: parent.width
+        pluginId: "omaconnect"
+        actionText: "Enable phone integration"
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+      }
+    }
+
+    Rectangle {
+      visible: !!root.service
+      width: parent.width
+      height: deviceSection.implicitHeight + Style.space(32)
+      radius: Style.cornerRadius
+      color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.035)
+      DeviceSection {
+        id: deviceSection
+        x: Style.space(16)
+        y: Style.space(16)
+        width: parent.width - Style.space(32)
+        panel: root
+      }
     }
 
     ActionToolbar {

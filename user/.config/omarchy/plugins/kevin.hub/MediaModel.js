@@ -71,21 +71,42 @@ function playerAppLabel(player) {
   return player.desktopEntry || player.identity || dbus
 }
 
-function playerHasPlaybackStream(player, playbackStreams) {
-  var playerKey = streamLabelKey(playerAppLabel(player))
-  if (!playerKey) return false
-
-  var streams = Array.isArray(playbackStreams) ? playbackStreams : []
-  for (var i = 0; i < streams.length; i++) {
-    var streamKey = streamLabelKey(rawStreamLabel(streams[i]))
-    if (!streamKey) continue
-    if (streamKey === playerKey
-        || streamKey.indexOf(playerKey) !== -1
-        || playerKey.indexOf(streamKey) !== -1)
-      return true
+// Match every stable application identity rather than one display label.
+// Some clients (Spotifast/fastpotify) leave all stream names empty but do
+// publish application.process.binary; browsers may use different labels
+// for their desktop entry, MPRIS identity and audio process.
+function identityKeys(values) {
+  var keys = []
+  for (var i = 0; i < values.length; i++) {
+    var label = String(values[i] || "").replace(/^org\.mpris\.MediaPlayer2\./i, "")
+      .replace(/\.instance[0-9]+$/i, "").replace(/\.desktop$/i, "")
+    var key = streamLabelKey(label)
+    if (key && ["audio", "playback", "stream", "unknown"].indexOf(key) === -1 && keys.indexOf(key) === -1)
+      keys.push(key)
   }
+  return keys
+}
 
+function streamMatchesPlayer(player, node) {
+  if (!player || !node || !node.ready) return false
+  var props = nodeProps(node)
+  var playerKeys = identityKeys([player.desktopEntry, player.dbusName, player.identity])
+  var streamKeys = identityKeys([props["application.id"], props["application.process.binary"],
+    props["application.name"], rawStreamLabel(node)])
+  for (var p = 0; p < playerKeys.length; p++) {
+    for (var n = 0; n < streamKeys.length; n++) {
+      var a = playerKeys[p], b = streamKeys[n]
+      if (a === b) return true
+      // Preserve decorated application-name matching without letting a
+      // short identifier like "mpv" claim another application's stream.
+      if (Math.min(a.length, b.length) >= 4 && (a.indexOf(b) !== -1 || b.indexOf(a) !== -1)) return true
+    }
+  }
   return false
+}
+
+function playerHasPlaybackStream(player, playbackStreams) {
+  return streamsForPlayer(player, playbackStreams).length > 0
 }
 
 function playerKey(player) {
@@ -146,19 +167,13 @@ function volumeIcon(volume, muted) {
 // The browser is the reason this returns a list rather than the boolean
 // playerHasPlaybackStream gives: Chromium opens one stream per tab that makes
 // sound, so one MPRIS player can sit on top of four independent volumes.
-// They are matched by app name, the only thing a stream and a player share —
+// They are matched by application identifiers, including the process binary —
 // nothing in a stream says which tab it belongs to.
 function streamsForPlayer(player, playbackStreams) {
-  var key = streamLabelKey(playerAppLabel(player))
-  if (!key) return []
-
   var out = []
   var streams = Array.isArray(playbackStreams) ? playbackStreams : []
   for (var i = 0; i < streams.length; i++) {
-    var streamKey = streamLabelKey(rawStreamLabel(streams[i]))
-    if (!streamKey) continue
-    if (streamKey === key || streamKey.indexOf(key) !== -1 || key.indexOf(streamKey) !== -1)
-      out.push(streams[i])
+    if (streamMatchesPlayer(player, streams[i])) out.push(streams[i])
   }
 
   // object.serial only ever counts up, so it is the order the streams
@@ -169,6 +184,23 @@ function streamsForPlayer(player, playbackStreams) {
 
 function streamSerial(node) {
   return Number(nodeProps(node)["object.serial"]) || 0
+}
+
+// Prefer the player's window that shows this track, then its active window.
+// A title match alone is insufficient: another app can show the same text.
+function windowForPlayer(player, windows) {
+  if (!player) return null
+  var best = null, bestScore = -1
+  var track = String(player.trackTitle || "").toLowerCase()
+  var list = windows || []
+  for (var i = 0; i < list.length; i++) {
+    var window = list[i]
+    if (!window || !streamMatchesPlayer(player, {ready:true, properties:{"application.id":window.appId}})) continue
+    var title = String(window.title || "").toLowerCase()
+    var score = (track && title.indexOf(track) !== -1 ? 100 : 0) + (window.activated ? 10 : 0)
+    if (score > bestScore) { best = window; bestScore = score }
+  }
+  return best
 }
 
 if (typeof module !== "undefined") {
@@ -193,6 +225,8 @@ if (typeof module !== "undefined") {
     fmtTime: fmtTime,
     volumeIcon: volumeIcon,
     streamsForPlayer: streamsForPlayer,
+    streamMatchesPlayer: streamMatchesPlayer,
+    windowForPlayer: windowForPlayer,
     streamSerial: streamSerial
   }
 }

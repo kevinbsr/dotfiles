@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls as Controls
 import qs.Commons
 import qs.Ui
 
@@ -31,10 +32,15 @@ import qs.Ui
 //   function panelClosed()      - panel dismissed; drop transient state
 // Everything else is the tab's own business, including its layout: the page
 // scrolls for it, so a tab only has to report an honest implicitHeight.
+//
+// Geometry rhythm used by every page: 8 between related items, 12 inside
+// compact cards, 16 inside hero/metric surfaces, 32 for header actions and
+// 36 for the header band. Surfaces inherit Style.cornerRadius from the active
+// theme. Smaller values are reserved for text/icon grouping.
 Panel {
   id: root
   moduleName: "kevin.hub"
-  ipcTarget: "kevin.hub"
+  ipcTarget: ""
   manageIpc: false
 
   property var anchorItem: null
@@ -55,7 +61,8 @@ Panel {
     { id: "weather", label: "Weather", icon: "󰖐", source: "WeatherTab.qml", minWidth: Style.space(480) },
     { id: "screentime", label: "Screen", icon: "󰔟", source: "ScreenTimeTab.qml", minWidth: Style.space(400) },
     { id: "phone", label: "Phone", icon: "󰄜", source: "KdeConnectTab.qml", minWidth: Style.space(400) },
-    { id: "nearby", label: "Nearby", icon: "󰀂", source: "NearbyTab.qml", minWidth: Style.space(400) }
+    { id: "nearby", label: "Nearby", icon: "󰀂", source: "NearbyTab.qml", minWidth: Style.space(400) },
+    { id: "system", label: "System", icon: "󰍛", source: "SystemTab.qml", minWidth: Style.space(480) }
   ]
 
   // Weather's data layer lives in the hub service, shared by every monitor's
@@ -71,7 +78,7 @@ Panel {
   readonly property real panelWidth: {
     var widest = 0
     for (var i = 0; i < tabs.length; i++) widest = Math.max(widest, tabs[i].minWidth || 0)
-    return widest
+    return widest + Style.space(160)
   }
 
   // Which tab is up.
@@ -92,6 +99,12 @@ Panel {
   readonly property var currentTab: tabs[Math.max(0, Math.min(currentIndex, tabs.length - 1))]
   readonly property string currentTabId: currentTab ? String(currentTab.id) : ""
   property var activeTabItem: null
+  property bool helpOpen: false
+  function toggleHelp() {
+    if (!helpOpen && activeTabItem && activeTabItem.keysBlocked === true) return
+    helpOpen = !helpOpen
+    focusKeyCatcher()
+  }
 
   // Guarded so the panel renders before the bar is injected (the bar-widget
   // contract instantiates it bare).
@@ -119,6 +132,7 @@ Panel {
   }
 
   function selectTab(id) {
+    root.helpOpen = false
     var next = indexOfTab(id)
     if (next === currentIndex) return
     currentIndex = next
@@ -148,8 +162,9 @@ Panel {
     interval: 1500
     onTriggered: {
       if (root.opened || !root.currentTabId) return
-      if (String(root.setting("tab", "")) === root.currentTabId) return
-      root.persistSettings({ tab: root.currentTabId })
+      var changes = {}
+      if (String(root.setting("tab", "")) !== root.currentTabId) changes.tab = root.currentTabId
+      if (Object.keys(changes).length) root.persistSettings(changes)
     }
   }
 
@@ -256,6 +271,7 @@ Panel {
   }
 
   onOpenedChanged: {
+    if (!opened) root.helpOpen = false
     updateShownTab()
     if (opened) persistTabLater.stop()
     else persistTabLater.restart()
@@ -281,6 +297,15 @@ Panel {
     page.contentY = Math.max(0, Math.min(page.contentHeight - page.height, page.contentY + delta))
   }
 
+  function ensureActiveRectVisible(y, height) {
+    var page = pages.itemAt(currentIndex)
+    if (!page) return
+    var next = page.contentY
+    if (y < next) next = y
+    else if (y + height > next + page.height) next = y + height - page.height
+    page.contentY = Math.max(0, Math.min(Math.max(0, page.contentHeight - page.height), next))
+  }
+
   function scrollActivePageToEnd() {
     var page = pages.itemAt(currentIndex)
     if (!page || page.contentHeight <= page.height) return
@@ -302,16 +327,17 @@ Panel {
     open: root.opened
     centerOnBar: true
     focusTarget: keyCatcher
-    contentWidth: panel.fittedContentWidth(root.panelWidth)
-    // Measured from where the pages actually start rather than by adding the
-    // chrome back up: stack.y already carries the strip, the separator and
-    // both margins, so nothing above the pages can be left out of the total.
-    contentHeight: panel.fittedContentHeight(stack.y + stack.contentHeight)
+    // fittedContentWidth caps the OUTER card. Account for its insets and
+    // the scrollbar gutter so the widest page gets the width it requested.
+    contentWidth: panel.fittedContentWidth(root.panelWidth + panel.padding * 2
+      + Border.left(panel.borderSpec) + Border.right(panel.borderSpec) + Style.space(10))
+    // Stable page viewport; long pages scroll and smaller displays still clamp.
+    contentHeight: panel.fittedContentHeight(Style.space(480))
 
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
-      blocked: root.activeTabItem ? root.activeTabItem.keysBlocked === true : false
+      blocked: !root.helpOpen && root.activeTabItem ? root.activeTabItem.keysBlocked === true : false
 
       // Arrows, Enter and printable keys belong to whatever is on screen;
       // the panel only keeps the keys that move between pages. A tab that
@@ -319,11 +345,13 @@ Panel {
       // A page that does not claim the key gets the panel's default, which
       // is to scroll it — the sane fallback for a module too tall to fit.
       onMoveRequested: function(dx, dy) {
+        if (root.helpOpen) { shortcutHelp.scroll(dy * Style.space(28)); return }
         var item = root.activeTabItem
         if (item && typeof item.handleMove === "function" && item.handleMove(dx, dy) === true) return
         if (dy !== 0) root.scrollActivePage(dy * Style.space(24))
       }
       onActivateRequested: {
+        if (root.helpOpen) return
         if (root.activeTabItem && typeof root.activeTabItem.handleActivate === "function")
           root.activeTabItem.handleActivate()
       }
@@ -331,6 +359,7 @@ Panel {
       // open composer — and only fall through to closing once it has none
       // left. Pages without that state never define handleClose.
       onCloseRequested: {
+        if (root.helpOpen) { root.helpOpen = false; return }
         var item = root.activeTabItem
         if (item && typeof item.handleClose === "function" && item.handleClose() === true) return
         root.close()
@@ -348,6 +377,7 @@ Panel {
         root.selectTab(root.tabs[next].id)
       }
       onTextKey: function(t) {
+        if (t === "?") { root.toggleHelp(); return }
         // Digits jump straight to a page, so a hub with five modules is
         // still one keystroke deep.
         var digit = parseInt(t, 10)
@@ -355,55 +385,100 @@ Panel {
           root.selectTab(root.tabs[digit - 1].id)
           return
         }
+        if (root.helpOpen) return
         if (root.activeTabItem && typeof root.activeTabItem.handleTextKey === "function")
           root.activeTabItem.handleTextKey(t)
       }
 
-      // ---- Tab strip. Centered over the page it switches, and the one
-      //      piece of chrome that is always in the same place no matter
-      //      which module is up.
-      Item {
-        id: header
+      // A quiet navigation rail keeps all destinations in view. The
+      // content retains its own scroll position and the original key routes.
+      Column {
+        id: navigation
         anchors.top: parent.top
         anchors.left: parent.left
-        anchors.right: parent.right
-        height: tabStrip.implicitHeight
+        width: Style.space(140)
+        spacing: Style.space(4)
 
-        ButtonGroup {
-          id: tabStrip
-          anchors.horizontalCenter: parent.horizontalCenter
-          options: {
-            var out = []
-            for (var i = 0; i < root.tabs.length; i++) {
-              out.push({
-                value: String(root.tabs[i].id),
-                label: String(root.tabs[i].label),
-                icon: String(root.tabs[i].icon || ""),
-                tooltip: String(root.tabs[i].label) + "  ·  " + (i + 1)
-              })
+        Repeater {
+          model: root.tabs
+          delegate: Rectangle {
+            id: destination
+            required property var modelData
+            required property int index
+            readonly property bool selected: root.currentIndex === index
+            width: navigation.width
+            height: Style.space(42)
+            radius: Style.cornerRadius
+            color: selected
+              ? Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.12)
+              : (navMouse.containsMouse ? Style.hoverFillFor(root.contentForeground, Color.accent) : "transparent")
+            Accessible.role: Accessible.PageTab
+            Accessible.name: modelData.label
+            Accessible.selected: selected
+            Accessible.onPressAction: root.selectTab(modelData.id)
+
+            Rectangle {
+              anchors.left: parent.left
+              anchors.verticalCenter: parent.verticalCenter
+              width: 2
+              height: Style.space(18)
+              radius: Math.min(width / 2, Style.cornerRadius)
+              visible: destination.selected
+              color: Color.accent
             }
-            return out
+            Text {
+              id: navIcon
+              anchors.left: parent.left
+              anchors.leftMargin: Style.space(14)
+              anchors.verticalCenter: parent.verticalCenter
+              width: Style.space(22)
+              text: destination.modelData.icon
+              color: destination.selected ? Color.accent : root.contentForeground
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.icon
+            }
+            Text {
+              anchors.left: navIcon.right
+              anchors.leftMargin: Style.space(8)
+              anchors.right: parent.right
+              anchors.rightMargin: Style.space(8)
+              anchors.verticalCenter: parent.verticalCenter
+              text: destination.modelData.label
+              elide: Text.ElideRight
+              color: root.contentForeground
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.bodySmall
+              font.weight: destination.selected ? Font.DemiBold : Font.Normal
+            }
+            MouseArea {
+              id: navMouse
+              anchors.fill: parent
+              hoverEnabled: true
+              cursorShape: Qt.PointingHandCursor
+              onClicked: root.selectTab(destination.modelData.id)
+              PanelToolTip {
+                visible: navMouse.containsMouse
+                text: destination.modelData.label + " · " + (destination.index + 1)
+                fontFamily: root.contentFontFamily
+              }
+            }
           }
-          value: root.currentTabId
-          foreground: root.contentForeground
-          background: root.bar ? root.bar.background : Color.background
-          accent: Color.accent
-          fontFamily: root.contentFontFamily
-          fontSize: Style.font.bodySmall
-          // The panel drives the keyboard itself; letting the strip take
-          // Tab focus would swallow h/l before the page ever sees them.
-          focusable: false
-          onChanged: function(value) { root.selectTab(value) }
         }
       }
 
-      PanelSeparator {
-        id: headerRule
-        anchors.top: header.bottom
-        anchors.topMargin: Style.space(8)
+      PanelActionButton {
         anchors.left: parent.left
-        anchors.right: parent.right
+        anchors.leftMargin: Style.space(9)
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: Style.space(8)
+        size: Style.space(32)
+        iconText: "?"
+        tooltipText: "Keyboard shortcuts · ?"
+        enabled: root.helpOpen || !root.activeTabItem || root.activeTabItem.keysBlocked !== true
+        hasCursor: root.helpOpen
         foreground: root.contentForeground
+        fontFamily: root.contentFontFamily
+        onClicked: root.toggleHelp()
       }
 
       // ---- Pages. One Flickable per tab so a module only has to report an
@@ -412,9 +487,9 @@ Panel {
       //      back to the calendar lands on the month you left it on.
       Item {
         id: stack
-        anchors.top: headerRule.bottom
-        anchors.topMargin: Style.space(10)
-        anchors.left: parent.left
+        anchors.top: parent.top
+        anchors.left: navigation.right
+        anchors.leftMargin: Style.space(20)
         anchors.right: parent.right
         anchors.bottom: parent.bottom
 
@@ -439,13 +514,27 @@ Panel {
             readonly property var tabItem: tabLoader.item
 
             anchors.fill: parent
-            visible: index === root.currentIndex
+            anchors.bottomMargin: Style.space(10)
+            visible: index === root.currentIndex && !root.helpOpen
             enabled: visible
             clip: true
             boundsBehavior: Flickable.StopAtBounds
             contentWidth: tabLoader.width
             contentHeight: tabLoader.height
             interactive: contentHeight > height || contentWidth > width
+
+            Controls.ScrollBar.vertical: HubScrollBar {
+              foreground: root.contentForeground
+              visible: page.visible && size < 1
+            }
+            Controls.ScrollBar.horizontal: HubScrollBar {
+              parent: stack
+              x: page.x
+              y: page.height
+              width: page.width
+              foreground: root.contentForeground
+              visible: page.visible && size < 1
+            }
 
             onVisibleChanged: if (visible) everShown = true
 
@@ -457,7 +546,7 @@ Panel {
               // capped to what the screen allows, and a fixed-width grid
               // would otherwise lose its last column off the edge instead of
               // scrolling.
-              width: Math.max(page.width, page.modelData.minWidth || 0)
+              width: Math.max(page.width - Style.space(10), page.modelData.minWidth || 0)
               height: item ? item.implicitHeight : 0
 
               onLoaded: {
@@ -473,6 +562,17 @@ Panel {
             }
           }
         }
+      }
+
+      ShortcutHelp {
+        id: shortcutHelp
+        anchors.fill: stack
+        visible: root.helpOpen
+        pageId: root.currentTabId
+        pageLabel: root.currentTab.label
+        foreground: root.contentForeground
+        fontFamily: root.contentFontFamily
+        onDismissed: { root.helpOpen = false; root.focusKeyCatcher() }
       }
     }
   }

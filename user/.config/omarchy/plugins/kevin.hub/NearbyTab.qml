@@ -8,7 +8,8 @@ import "NearbyModel.js" as Model
 // Nearby page of the hub: LocalSend-compatible discovery, sending files and
 // clipboard, and accepting what arrives.
 //
-// `oma.nearby` stays installed as a service. That service is the whole
+// `oma.nearby` stays installed and HubIntegrations.qml loads its service once.
+// That service is the whole
 // engine — it owns the Rust helper, the transfer state and the `oma.nearby`
 // IPC target — and upstream's Panel.qml was already only a view onto it,
 // one per monitor. This page is that view, ported at the installed revision
@@ -27,10 +28,10 @@ Item {
   property string fontFamily: Style.font.family
 
   readonly property color urgent: bar ? bar.urgent : Color.urgent
-  readonly property color dim: Qt.darker(foreground, 1.4)
+  readonly property color dim: Qt.rgba(foreground.r, foreground.g, foreground.b, 0.7)
 
-  readonly property var engine: bar && bar.shell && typeof bar.shell.serviceFor === "function"
-    ? bar.shell.serviceFor("oma.nearby")
+  readonly property var engine: hub && hub.hubService && hub.hubService.integrations
+    ? hub.hubService.integrations.nearby
     : null
 
   // Engine state, read under the names the view already used. A view with no
@@ -73,7 +74,7 @@ Item {
       if (!backendReady) return errorText || statusText
       return nearbyPhrases[nearbyPhraseIndex % nearbyPhrases.length]
     }
-    if (viewState === "target") return "Ready to receive"
+    if (viewState === "target") return "Choose what to send"
     return statusText
   }
 
@@ -156,9 +157,9 @@ Item {
 
   // The chooser and the clipboard belong to the monitor the user acted on, so
   // they stay with the view and hand their result to the engine.
-  function selectFiles() { if (!selectedDevice || picker.running) return; picker.launched = false; picker.running = true }
-  function sendClipboard() { if (!selectedDevice || clipboard.running) return; clipboard.launched = false; clipboard.running = true }
-  function copyReceivedText() { clipboardWriter.launched = false; clipboardWriter.running = true }
+  function selectFiles() { if (!selectedDevice || picker.running) return; picker.device = selectedDevice; picker.launched = false; picker.running = true }
+  function sendClipboard() { if (!selectedDevice || clipboard.running) return; clipboard.device = selectedDevice; clipboard.launched = false; clipboard.running = true }
+  function copyReceivedText() { if (clipboardWriter.running || root.viewState !== "text") return; clipboardWriter.value = root.incomingText; clipboardWriter.launched = false; clipboardWriter.running = true }
 
   function handleMove(dx, dy) {
     cursorActive = true
@@ -221,6 +222,7 @@ Item {
   // on our behalf, so the 127 a shell would report cannot reach us.
   Process {
     id: picker
+    property var device: null
     property bool launched: false
     command: ["omarchy-file-select", "--title", "Send nearby", "--multiple"]
     running: false
@@ -231,14 +233,15 @@ Item {
       // The chooser separates a decision from a fault: 1 is nobody picking
       // anything, and anything above it is a chooser that never opened.
       if (code > 1) { root.failWith("The file chooser did not open"); return }
-      if (code !== 0 || !root.selectedDevice) return
+      if (code !== 0 || !root.selectedDevice || !device || root.selectedDevice.fingerprint !== device.fingerprint || root.viewState !== "target") return
       var paths = String(pickerOutput.text || "").split("\n").filter(function(v) { return v.trim() !== "" })
-      if (paths.length) root.beginOutgoing({ kind: "files", device: root.selectedDevice, paths: paths })
+      if (paths.length) root.beginOutgoing({ kind: "files", device: device, paths: paths })
     }
   }
 
   Process {
     id: clipboard
+    property var device: null
     property bool launched: false
     command: ["wl-paste", "--no-newline", "--type", "text"]
     running: false
@@ -246,19 +249,21 @@ Item {
     onStarted: clipboard.launched = true
     onRunningChanged: if (!running && !clipboard.launched) root.failWith("wl-paste is required to read the clipboard")
     onExited: function(code) {
+      if (!root.selectedDevice || !device || root.selectedDevice.fingerprint !== device.fingerprint || root.viewState !== "target") return
       var text = String(clipboardOutput.text || "")
-      if (code === 0 && text.trim() !== "" && root.selectedDevice) root.beginOutgoing({ kind: "text", device: root.selectedDevice, text: text })
+      if (code === 0 && text.trim() !== "") root.beginOutgoing({ kind: "text", device: device, text: text })
       else root.failWith("Clipboard is empty")
     }
   }
 
   Process {
     id: clipboardWriter
+    property string value: ""
     property bool launched: false
     command: ["wl-copy"]
     running: false
     stdinEnabled: true
-    onStarted: { clipboardWriter.launched = true; write(root.incomingText); stdinEnabled = false }
+    onStarted: { clipboardWriter.launched = true; write(value); stdinEnabled = false }
     onRunningChanged: if (!running && !clipboardWriter.launched && root.viewState === "text") root.failWith("wl-copy is required to copy received text")
     onExited: function(code) {
       stdinEnabled = true
@@ -273,15 +278,24 @@ Item {
     width: parent.width
     spacing: Style.space(12)
 
-    PanelHero {
-      id: hero
-      title: (root.viewState === "target" || root.viewState === "pin") && root.selectedDevice ? root.selectedDevice.alias : (root.viewState === "incoming" ? "Incoming" : "Nearby")
-      meta: root.heroMetaText
-      detail: ""
-      foreground: root.foreground
-      fontFamily: root.fontFamily
-      iconComponent: Component { Text { text: root.viewState === "incoming" ? "󰁅" : "󰀂"; color: root.incoming ? root.urgent : root.foreground; font.family: root.fontFamily; font.pixelSize: Style.font.display } }
-      trailingControl: root.viewState === "nearby" ? receiverToggle : null
+    Rectangle {
+      width: parent.width
+      height: hero.implicitHeight + Style.space(32)
+      radius: Style.cornerRadius
+      color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.035)
+      PanelHero {
+        x: Style.space(16)
+        y: Style.space(16)
+        width: parent.width - Style.space(32)
+        id: hero
+        title: (root.viewState === "target" || root.viewState === "pin") && root.selectedDevice ? root.selectedDevice.alias : (root.viewState === "incoming" ? "Incoming" : "Nearby")
+        meta: root.heroMetaText
+        detail: ""
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        iconComponent: Component { Text { text: root.viewState === "incoming" ? "󰁅" : "󰀂"; color: root.incoming ? root.urgent : root.foreground; font.family: root.fontFamily; font.pixelSize: Style.font.display } }
+        trailingControl: root.viewState === "nearby" && root.engine ? receiverToggle : null
+      }
     }
 
     Component {
@@ -298,8 +312,38 @@ Item {
 
     PanelSeparator { width: parent.width }
 
+    IntegrationSetup {
+      visible: !root.engine
+      width: parent.width
+      pluginId: "oma.nearby"
+      actionText: "Enable nearby sharing"
+      foreground: root.foreground
+      fontFamily: root.fontFamily
+    }
+
     Column {
-      visible: root.viewState === "nearby"; width: parent.width; spacing: Style.space(4)
+      visible: !!root.engine && (root.engine.helperUpdateOffered || root.engine.helperUpdating)
+      width: parent.width
+      spacing: Style.space(8)
+      Button {
+        text: root.engine && root.engine.helperUpdating ? "Updating…" : "Update Nearby"
+        enabled: !!root.engine && !root.engine.helperUpdating
+        foreground: root.foreground
+        onClicked: root.engine.startHelperUpdate()
+      }
+      Text {
+        width: parent.width
+        text: root.engine ? root.engine.helperUpdateError || root.engine.helperUpdateStatus : ""
+        visible: text !== ""
+        wrapMode: Text.Wrap
+        color: root.foreground
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.bodySmall
+      }
+    }
+
+    Column {
+      visible: !!root.engine && root.viewState === "nearby"; width: parent.width; spacing: Style.space(4)
       PanelSectionHeader { text: "NEARBY"; foreground: root.foreground; fontFamily: root.fontFamily }
       Text { visible: root.devices.length === 0; width: parent.width; textFormat: Text.PlainText; text: !root.receiverEnabled ? "Nearby is turned off" : (root.discoveryActive ? "Finding devices…" : (root.backendReady ? "No devices nearby" : root.errorText)); wrapMode: Text.Wrap; color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.body; topPadding: Style.space(12); bottomPadding: Style.space(12) }
       Repeater {
@@ -349,7 +393,7 @@ Item {
       visible: root.viewState === "sending" || root.viewState === "receiving"; width: parent.width; spacing: Style.space(8)
       PanelSectionHeader { text: root.viewState === "sending" ? "SENDING" : "RECEIVING"; foreground: root.foreground; fontFamily: root.fontFamily }
       Text { width: parent.width; textFormat: Text.PlainText; text: root.transferName; color: root.foreground; font.family: root.fontFamily; font.pixelSize: Style.font.title; font.bold: true; elide: Text.ElideMiddle }
-      Rectangle { width: parent.width; height: Style.space(4); radius: height / 2; color: Qt.darker(root.foreground, 2.2); Rectangle { width: parent.width * Math.max(0, Math.min(1, root.progress)); height: parent.height; radius: height / 2; color: root.foreground; Behavior on width { NumberAnimation { duration: 120 } } } }
+      Rectangle { width: parent.width; height: Style.space(4); radius: Math.min(height / 2, Style.cornerRadius); color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.38); Rectangle { width: parent.width * Math.max(0, Math.min(1, root.progress)); height: parent.height; radius: parent.radius; color: root.foreground; Behavior on width { NumberAnimation { duration: 120 } } } }
       Text { text: Math.round(root.progress * 100) + "% · " + (root.viewState === "sending" ? "to " : "from ") + root.transferPeer; color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.body }
       Button { visible: root.viewState === "sending"; text: "Cancel"; bordered: true; foreground: root.urgent; hasCursor: root.cursorActive; onClicked: root.cancelOutgoing() }
     }

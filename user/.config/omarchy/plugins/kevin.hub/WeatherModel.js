@@ -130,6 +130,44 @@ function dayName(dateString, formatter) {
   return ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][d.getDay()]
 }
 
+// Daily fields are optional: unknown data must not become a zero forecast.
+function dailyNumber(value, maximum) {
+  return typeof value === "number" && isFinite(value) && value >= 0
+    && (maximum === undefined || value <= maximum) ? value : null
+}
+
+function solarTime(value, date) {
+  if (typeof value !== "string" || value.slice(0, 10) !== date) return ""
+  var match = /^\d{4}-\d{2}-\d{2}T([0-2]\d:[0-5]\d)/.exec(value)
+  return match && Number(match[1].slice(0, 2)) < 24 ? match[1] : ""
+}
+
+function dailyExtras(report, date) {
+  var daily = report && report.daily
+  var i = daily && Array.isArray(daily.time) ? daily.time.indexOf(date) : -1
+  function value(key) { return i >= 0 && Array.isArray(daily[key]) ? daily[key][i] : null }
+  var rain = dailyNumber(value("rain_sum")), showers = dailyNumber(value("showers_sum"))
+  return {
+    precipProbability: dailyNumber(value("precipitation_probability_max"), 100),
+    rainMm: rain !== null && showers !== null ? rain + showers : null,
+    uvMax: dailyNumber(value("uv_index_max")),
+    sunrise: solarTime(value("sunrise"), date),
+    sunset: solarTime(value("sunset"), date)
+  }
+}
+
+function forecastLocalDate(report, now, fallback) {
+  var offset = report && report.utc_offset_seconds
+  if (typeof offset !== "number" || !isFinite(offset) || Math.abs(offset) > 86400) return fallback
+  var date = new Date(now + offset * 1000)
+  return isNaN(date.getTime()) ? fallback : date.toISOString().slice(0, 10)
+}
+
+function dailyValue(value, suffix, decimals) {
+  if (dailyNumber(value) === null) return "—"
+  return value.toFixed(decimals || 0).replace(/\.0+$/, "") + (suffix || "")
+}
+
 function openMeteoForecastDays(dailyForecastReport, todayString) {
   var daily = dailyForecastReport && dailyForecastReport.daily ? dailyForecastReport.daily : null
   if (!daily || !daily.time) return []
@@ -147,7 +185,8 @@ function openMeteoForecastDays(dailyForecastReport, todayString) {
       mintempC: roundedTemp(minC),
       maxtempF: roundedTemp(celsiusToFahrenheit(maxC)),
       mintempF: roundedTemp(celsiusToFahrenheit(minC)),
-      openMeteoWeatherCode: daily.weather_code ? daily.weather_code[i] : null
+      openMeteoWeatherCode: daily.weather_code ? daily.weather_code[i] : null,
+      extras: dailyExtras(dailyForecastReport, date)
     })
   }
   return result
@@ -281,6 +320,9 @@ if (typeof module !== "undefined") {
     shouldUseImperial: shouldUseImperial,
     dayName: dayName,
     openMeteoForecastDays: openMeteoForecastDays,
+    dailyExtras: dailyExtras,
+    dailyValue: dailyValue,
+    forecastLocalDate: forecastLocalDate,
     openMeteoCurrentCondition: openMeteoCurrentCondition,
     currentIcon: currentIcon,
     provisionalCurrentIcon: provisionalCurrentIcon,
