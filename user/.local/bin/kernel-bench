@@ -131,6 +131,31 @@ def stats(values, unit, higher_is_better, extra=None):
     return out
 
 
+
+def mem_available_mb():
+    for line in (read("/proc/meminfo") or "").splitlines():
+        if line.startswith("MemAvailable:"):
+            return round(int(line.split()[1]) / 1024)
+    return None
+
+
+def process_count():
+    return len([p for p in Path("/proc").iterdir() if p.name.isdigit()])
+
+
+def top_processes(limit=8):
+    """The heaviest resident processes, so a later reader can see what shared
+    the machine with the measurement."""
+    out, _ = run(["ps", "-eo", "comm,rss,pcpu", "--sort=-rss", "--no-headers"], timeout=30)
+    rows = []
+    for line in (out or "").splitlines()[:limit]:
+        parts = line.split()
+        if len(parts) == 3:
+            rows.append({"comm": parts[0][:24], "rss_mb": round(int(parts[1]) / 1024),
+                         "cpu": float(parts[2])})
+    return rows
+
+
 # --- environment ------------------------------------------------------------
 
 def environment():
@@ -167,6 +192,13 @@ def environment():
         "refresh_rates": rates,
         "monitors": len(rates),
         "loadavg": os.getloadavg(),
+        # What else was on the machine. Load average alone said the two first
+        # runs matched, and it does not see memory pressure, page cache or a
+        # dozen idle apps holding RAM -- which is what decides the disk numbers
+        # and a good part of a build.
+        "mem_available_mb": mem_available_mb(),
+        "processes": process_count(),
+        "top_processes": top_processes(),
         "uptime_s": round(float((read("/proc/uptime") or "0").split()[0])),
         # Frequency policy decides CPU numbers as much as the kernel does, and
         # the first two runs recorded none of it: comparing 7.2.6 with
