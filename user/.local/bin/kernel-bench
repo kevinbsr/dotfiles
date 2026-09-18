@@ -168,6 +168,17 @@ def environment():
         "monitors": len(rates),
         "loadavg": os.getloadavg(),
         "uptime_s": round(float((read("/proc/uptime") or "0").split()[0])),
+        # Frequency policy decides CPU numbers as much as the kernel does, and
+        # the first two runs recorded none of it: comparing 7.2.6 with
+        # 7.2.5-4-omarchy left no way to tell a driver or EPP change from a
+        # kernel change.
+        "scaling_driver": read("/sys/devices/system/cpu/cpu0/cpufreq/scaling_driver"),
+        "energy_performance_preference": read(
+            "/sys/devices/system/cpu/cpu0/cpufreq/energy_performance_preference"),
+        "amd_pstate_status": read("/sys/devices/system/cpu/amd_pstate/status"),
+        "cpu_boost": read("/sys/devices/system/cpu/cpufreq/boost"),
+        "scaling_max_freq": read("/sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq"),
+        "io_scheduler": (read("/sys/block/nvme0n1/queue/scheduler") or "").strip(),
         "amd_panel_power_savings": read("/sys/class/drm/card1-eDP-1/amdgpu/panel_power_savings"),
         "nvidia_runtime": read("/sys/bus/pci/devices/0000:01:00.0/power/runtime_status"),
         "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
