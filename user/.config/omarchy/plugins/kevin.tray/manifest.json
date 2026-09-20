@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "kevin.tray",
   "name": "Tray (fork)",
-  "version": "1.9.3-kevin.1",
+  "version": "1.9.3-kevin.2",
   "author": "Ty Richards",
   "license": "MIT",
-  "description": "Fork de io.github.tyrichards.tray 1.9.3 (Ty Richards, MIT). Mantido localmente para consertar a gaveta que parou de expandir apos a reescrita das APIs de plugin do Omarchy em 2026-09-08.",
+  "description": "Local fork of io.github.tyrichards.tray 1.9.3 (Ty Richards, MIT) that restores drag-into-tray on the Omarchy 4 plugin facade. Needs the local tray-trusted-fork shell patch.",
   "kinds": [
     "bar-widget"
   ],

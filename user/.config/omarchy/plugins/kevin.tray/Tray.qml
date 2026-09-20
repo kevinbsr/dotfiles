@@ -7,6 +7,7 @@ import Quickshell.Services.SystemTray
 import qs.Commons
 import qs.Ui
 import "TrayModel.js" as TrayModel
+import "."
 
 // A drop-in replacement for omarchy.tray. Everything the stock tray does —
 // status notifier icons, pin/hide, the slide-out drawer, in-popup app menus —
@@ -17,9 +18,7 @@ import "TrayModel.js" as TrayModel
 // manage popup.
 BarWidget {
   id: root
-  moduleName: "io.github.tyrichards.tray"
-  property var barWidgetRegistry: null
-
+  moduleName: "kevin.tray"
 
   // Hover-to-expand, driven by the drag-out overlay's single HoverHandler:
   // two stacked hover items (the overlay plus a handler in the drawer) fight
@@ -28,9 +27,29 @@ BarWidget {
   // entirely, so the drawer cannot open by pointing at it — but clicks still
   // arrive, so a deliberate chevron click holds it open (clickExpanded) until
   // that panel closes.
-  property bool expanded: clickExpanded || (overlayHover.hovered && !exteriorPopoutOpen)
+  property bool expanded: pinnedOpen || clickExpanded || (overlayHover.hovered && !exteriorPopoutOpen)
   readonly property bool exteriorPopoutOpen: root.bar && root.bar.activePopout ? !ownPopoutActive : false
   property bool clickExpanded: false
+  // Pinned open: a chevron click keeps the drawer out after the pointer
+  // leaves, and the next click releases it. The flag lives in TrayState, not
+  // here, so it survives the bar rebuild that every shell.json write causes —
+  // otherwise organizing the drawer would close it at each drop. Session
+  // state on purpose: the only place to persist it across restarts would be
+  // this widget's shell.json entry, and writing there is what rebuilds the
+  // bar in the first place.
+  readonly property string screenKey: {
+    var win = root.QsWindow ? root.QsWindow.window : null
+    return win && win.screen ? String(win.screen.name || "") : ""
+  }
+  readonly property bool pinnedOpen: TrayState.pinned(root.screenKey)
+
+  function togglePinnedOpen() {
+    // Opening the drawer is also a dismissal gesture for whatever exterior
+    // panel is up.
+    root.closeExteriorPopout()
+    root.clickExpanded = false
+    TrayState.setPinned(root.screenKey, !root.pinnedOpen)
+  }
   onExteriorPopoutOpenChanged: if (!exteriorPopoutOpen) clickExpanded = false
 
   function closeExteriorPopout() {
@@ -74,7 +93,6 @@ BarWidget {
     return TrayModel.sortByOrder(entries, orderIds)
   }
   readonly property bool hasDrawerContent: drawerEntries.length > 0
-
 
   // True while an open popup belongs to the tray or to a widget hosted in
   // it: the bar's popout coordinator tracks the owning widget item, and
@@ -198,7 +216,14 @@ BarWidget {
   readonly property int animationDuration: 600
   property real revealProgress: (expanded || dragOver || ownPopoutActive) ? 1 : 0
 
+  // The first value is whatever this instance is born with — open when the
+  // drawer was pinned before a rebuild. Animating that would replay the
+  // 600 ms slide on every drop.
+  property bool revealAnimated: false
+  Component.onCompleted: Qt.callLater(function() { root.revealAnimated = true })
+
   Behavior on revealProgress {
+    enabled: root.revealAnimated
     NumberAnimation { duration: root.animationDuration; easing.type: Easing.OutCubic }
   }
 
@@ -285,7 +310,7 @@ BarWidget {
       root.dragInPick = null
       if (!wanted) return
       var shellRef = root.bar ? root.bar.shell : null
-      var trayId = root.moduleName || "io.github.tyrichards.tray"
+      var trayId = root.moduleName || "kevin.tray"
       if (!shellRef || typeof shellRef.mutateShellConfig !== "function") return
       Qt.callLater(function() {
         shellRef.mutateShellConfig(function(config) {
@@ -629,7 +654,7 @@ BarWidget {
 
         if (!target || !toRegion) return
         var shellRef = b.shell
-        var trayId = root.moduleName || "io.github.tyrichards.tray"
+        var trayId = root.moduleName || "kevin.tray"
         // Deferred for the same reason as drag-in: a synchronous write would
         // rebuild the bar while this release handler is on the stack. The
         // closure holds only the shell reference and plain values.
@@ -830,7 +855,7 @@ BarWidget {
   // configs converge on the simple shape.
   function persistState(overrides) {
     if (!root.bar || !root.bar.shell || typeof root.bar.shell.updateEntryInline !== "function") return
-    var id = root.moduleName || "io.github.tyrichards.tray"
+    var id = root.moduleName || "kevin.tray"
     var payload = { id: id }
     var current = root.settings || {}
     for (var key in current) {
@@ -932,15 +957,12 @@ BarWidget {
           width: implicitWidth
           height: implicitHeight
           x: 0
-          text: "\uf053"
+          // Points the way the drawer will move: out while collapsed, back in
+          // while pinned open.
+          text: root.pinnedOpen ? "\uf054" : "\uf053"
           onPressed: function(button) {
             if (button === Qt.RightButton) root.managePopupOpen = !root.managePopupOpen
-            else if (button === Qt.LeftButton) {
-              // Opening the drawer is also a dismissal gesture for whatever
-              // exterior panel is up.
-              root.closeExteriorPopout()
-              root.clickExpanded = true
-            }
+            else if (button === Qt.LeftButton) root.togglePinnedOpen()
           }
         }
 
@@ -1004,16 +1026,11 @@ BarWidget {
           width: implicitWidth
           height: implicitHeight
           y: 0
-          text: "\uf053"
+          text: root.pinnedOpen ? "\uf054" : "\uf053"
           textRotation: 90
           onPressed: function(button) {
             if (button === Qt.RightButton) root.managePopupOpen = !root.managePopupOpen
-            else if (button === Qt.LeftButton) {
-              // Opening the drawer is also a dismissal gesture for whatever
-              // exterior panel is up.
-              root.closeExteriorPopout()
-              root.clickExpanded = true
-            }
+            else if (button === Qt.LeftButton) root.togglePinnedOpen()
           }
         }
 
@@ -1642,7 +1659,7 @@ BarWidget {
       ? String(root.bar.customModuleType(entry) || "") : ""
     readonly property var registryComponent: {
       if (customType) return null
-      var registry = root.barWidgetRegistry || (root.bar ? root.bar.barWidgetRegistry : null)
+      var registry = root.bar ? root.bar.barWidgetRegistry : null
       if (!registry) return null
       var revision = registry.revision
       var record = registry.widgets[widgetId]
@@ -1671,10 +1688,27 @@ BarWidget {
     onActiveItemChanged: Qt.callLater(injectProps)
     onWidgetSettingsChanged: injectProps()
 
+    // Widgets hosted in the drawer get the same bar the shell would give them
+    // in a bar section: the host bar for first-party widgets, their own scoped
+    // PluginBarApi facade for everything else. This tray receives the host bar
+    // itself (a local shell patch trusts kevin.tray), and handing that on
+    // would give every captured third-party widget the access the facade
+    // exists to withhold.
+    function hostedBar() {
+      var bar = root.bar
+      if (!bar || typeof bar.pluginBarApiFor !== "function") return bar
+      var registry = bar.barWidgetRegistry
+      var id = typeof bar.canonicalWidgetId === "function" ? bar.canonicalWidgetId(widgetId) : widgetId
+      var metadata = registry ? registry.metadataFor(id) : null
+      if (metadata && metadata.firstParty === true) return bar
+      var registered = registryComponent !== null
+      return bar.pluginBarApiFor(registered ? id : "bar-entry:" + widgetId, widgetId, registered)
+    }
+
     function injectProps() {
       var target = activeItem
       if (!target) return
-      if ("bar" in target) target.bar = root.bar
+      if ("bar" in target) target.bar = hostedBar()
       if ("moduleName" in target) target.moduleName = widgetId
       if ("settings" in target) target.settings = widgetSettings
     }
