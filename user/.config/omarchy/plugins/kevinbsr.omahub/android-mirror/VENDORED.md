@@ -31,21 +31,21 @@ notifies; a change to `MirrorBackend`'s properties or functions that leaves it
 loading fine would show up as this section going quietly wrong instead, same
 as an upstream `Panel.qml` change would for anyone running that panel.
 
-## Local manifest patch
+## Manifest patch
 
 Upstream's manifest declares only `"kinds": ["bar-widget"]`, with no service
 entry point -- MirrorBackend.qml was never meant to be loaded by anything but
-Panel.qml. `~/.config/omarchy/plugins/io.github.ayan-de.android-mirror/manifest.json`
-has been patched locally to add `"service"` to `kinds` and
-`"entryPoints.service": "MirrorBackend.qml"`, and
-`kevin.hub/scripts/integration_service.py`'s `ALLOWED` set gained the plugin's
-id -- both are what let the Hub's "Enable" button host it the same way it
+Panel.qml. `kevinbsr.omahub/scripts/integration_service.py`'s `ALLOWED` set gained
+the plugin's id, and its `MANIFEST_PATCHES` table knows to add `"service"` to
+`kinds` and `"entryPoints.service": "MirrorBackend.qml"` to android-mirror's
+OWN `manifest.json` the first time it is enabled (`patch_manifest_for_service`,
+idempotent, only touches that one file, only for plugin ids listed in the
+table) -- that is what lets the Hub's "Enable" button host it the same way it
 hosts the other three. `omarchy plugin update` on android-mirror overwrites
-the manifest patch; reapply the two lines above if the integration reports
-"Install the integration from the Omarchy plugin manager first" after an
-update. A PR proposing the manifest addition upstream would remove the need
-to reapply it -- purely additive, no behavior change for anyone running the
-plugin standalone.
+that patch; enabling it again through the Hub reapplies it. A PR proposing
+the manifest addition upstream would remove the need for this table entry
+entirely -- purely additive, no behavior change for anyone running the
+plugin standalone. No such PR has been opened yet.
 
 ## To resync
 

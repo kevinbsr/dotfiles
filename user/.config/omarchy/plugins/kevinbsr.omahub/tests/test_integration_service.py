@@ -1,5 +1,7 @@
 import importlib.util
+import json
 from pathlib import Path
+import tempfile
 import unittest
 
 spec = importlib.util.spec_from_file_location("integration", Path(__file__).parents[1] / "scripts/integration_service.py")
@@ -18,7 +20,7 @@ class ServiceConfigTests(unittest.TestCase):
         result = integration.service_config(config, "omaconnect")
         self.assertEqual(result["bar"]["layout"]["right"], [])
         self.assertEqual(result["bar"]["layout"]["left"], config["bar"]["layout"]["left"])
-        self.assertEqual(result["plugins"], [{"id": "keep", "custom": [1, 2]}, {"id": "kevin.hub", "integrations": {"omaconnect": {"showBattery": True}}}])
+        self.assertEqual(result["plugins"], [{"id": "keep", "custom": [1, 2]}, {"id": "kevinbsr.omahub", "integrations": {"omaconnect": {"showBattery": True}}}])
         self.assertEqual(result["disabledPlugins"], ["omaconnect", "keep-disabled"])
         self.assertEqual(result["idle"], config["idle"])
         self.assertEqual(len(config["bar"]["layout"]["right"]), 1)
@@ -28,7 +30,7 @@ class ServiceConfigTests(unittest.TestCase):
         config = {"plugins": [{"id": "agx.screen-time", "option": 1}, "agx.screen-time"],
                   "bar": {"layout": {"center": [{"id": "agx.screen-time", "option": 0, "custom": True}]}}}
         result = integration.service_config(config, "agx.screen-time")
-        self.assertEqual(result["plugins"], [{"id": "kevin.hub", "integrations": {"agx.screen-time": {"option": 1, "custom": True}}}])
+        self.assertEqual(result["plugins"], [{"id": "kevinbsr.omahub", "integrations": {"agx.screen-time": {"option": 1, "custom": True}}}])
         self.assertFalse(result["bar"]["layout"]["center"])
 
     def test_rejects_unrelated_plugin(self):
@@ -36,10 +38,10 @@ class ServiceConfigTests(unittest.TestCase):
             integration.service_config({}, "unrelated")
 
     def test_minimal_config(self):
-        self.assertEqual(integration.service_config({}, "omaconnect"), {"plugins": [{"id": "kevin.hub", "integrations": {"omaconnect": {}}}], "disabledPlugins": ["omaconnect"]})
+        self.assertEqual(integration.service_config({}, "omaconnect"), {"plugins": [{"id": "kevinbsr.omahub", "integrations": {"omaconnect": {}}}], "disabledPlugins": ["omaconnect"]})
 
     def test_migrates_all_without_losing_hub_or_receiver_preferences(self):
-        config = {"bar": {"layout": {"right": [{"id": "kevin.hub", "birthYear": 2000}]}},
+        config = {"bar": {"layout": {"right": [{"id": "kevinbsr.omahub", "birthYear": 2000}]}},
                   "plugins": [{"id": "oma.nearby", "receiverEnabled": False},
                               {"id": "omaconnect"}, {"id": "agx.screen-time"}]}
         for plugin in sorted(integration.ALLOWED):
@@ -53,10 +55,45 @@ class ServiceConfigTests(unittest.TestCase):
         self.assertEqual(integration.service_config(config, "oma.nearby"), config)
 
     def test_promotes_string_hub_without_moving_it(self):
-        config = {"bar": {"layout": {"center": ["kevin.hub", "other"]}}}
+        config = {"bar": {"layout": {"center": ["kevinbsr.omahub", "other"]}}}
         result = integration.service_config(config, "omaconnect")
         self.assertEqual(result["bar"]["layout"]["center"],
-                         [{"id": "kevin.hub", "integrations": {"omaconnect": {}}}, "other"])
+                         [{"id": "kevinbsr.omahub", "integrations": {"omaconnect": {}}}, "other"])
+
+
+class ManifestPatchTests(unittest.TestCase):
+    def test_adds_missing_service_kind_and_entry_point(self):
+        manifest = {"id": "io.github.ayan-de.android-mirror", "kinds": ["bar-widget"],
+                    "entryPoints": {"barWidget": "Panel.qml"}}
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest_path = Path(tmp) / "manifest.json"
+            manifest_path.write_text(json.dumps(manifest))
+            changed = integration.patch_manifest_for_service("io.github.ayan-de.android-mirror", manifest_path, manifest)
+            self.assertTrue(changed)
+            self.assertEqual(manifest["kinds"], ["bar-widget", "service"])
+            self.assertEqual(manifest["entryPoints"]["service"], "MirrorBackend.qml")
+            on_disk = json.loads(manifest_path.read_text())
+            self.assertEqual(on_disk["kinds"], ["bar-widget", "service"])
+
+    def test_idempotent_once_patched(self):
+        manifest = {"id": "io.github.ayan-de.android-mirror", "kinds": ["bar-widget", "service"],
+                    "entryPoints": {"barWidget": "Panel.qml", "service": "MirrorBackend.qml"}}
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest_path = Path(tmp) / "manifest.json"
+            manifest_path.write_text(json.dumps(manifest))
+            before = manifest_path.read_text()
+            changed = integration.patch_manifest_for_service("io.github.ayan-de.android-mirror", manifest_path, manifest)
+            self.assertFalse(changed)
+            self.assertEqual(manifest_path.read_text(), before)
+
+    def test_leaves_unlisted_plugins_untouched(self):
+        manifest = {"id": "omaconnect", "kinds": ["bar-widget"]}
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest_path = Path(tmp) / "manifest.json"
+            manifest_path.write_text(json.dumps(manifest))
+            changed = integration.patch_manifest_for_service("omaconnect", manifest_path, manifest)
+            self.assertFalse(changed)
+            self.assertEqual(manifest["kinds"], ["bar-widget"])
 
 
 if __name__ == "__main__":

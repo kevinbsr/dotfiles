@@ -1,4 +1,4 @@
-# Kevin Hub
+# OmaHub
 
 A keyboard-first command center for Omarchy. One themed bar widget opens a
 single panel for calendar, media, weather, screen time, phone controls, nearby
@@ -32,7 +32,7 @@ installed.
 ## Install
 
 ```bash
-omarchy plugin add https://github.com/kevinbsr/kevin-hub.git --enable --yes
+omarchy plugin add https://github.com/kevinbsr/omahub.git --enable --yes
 ```
 
 Install the optional engines from their upstream projects:
@@ -70,7 +70,7 @@ NearbyTab.qml      nearby page   (oma.nearby's Panel.qml, view half)
 NearbyModel.js     transfer formatting, from oma.nearby
 SystemTab.qml      system page   (CPU, memory, GPU and storage)
 scripts/sysmon_probe local, sleep-aware system data collector
-Service.qml        shared panel/MPRIS service; owns `kevin.hub` and `kevin.hub.media`
+Service.qml        shared panel/MPRIS service; owns `kevinbsr.omahub` and `kevinbsr.omahub.media`
 ClockModel.js      date maths, from omarchy.clock
 MediaModel.js      player ranking helpers, from omarchy.media
 WeatherModel.js    wttr/open-meteo parsing, from omarchy.weather
@@ -133,7 +133,7 @@ in mind on any resync.
 
 `Service.qml` is the shared engine used by the Hub's media page and bar
 controls. The shell keeps ownership of its built-in `media` IPC target, while
-the Hub exposes its source-aware controls through `kevin.hub.media`; this
+the Hub exposes its source-aware controls through `kevinbsr.omahub.media`; this
 avoids an ambiguous handler when both services are loaded.
 
 `HubIntegrations.qml` loads one installed engine for Screen Time, Phone and
@@ -148,7 +148,7 @@ no external plugin source is patched. Updates to those engines should be
 checked against the Hub's copied views before distribution.
 
 `scripts/integration_service.py enable <id>` moves the selected integration's
-preferences into `kevin.hub.integrations`, removes its standalone service/bar
+preferences into `kevinbsr.omahub.integrations`, removes its standalone service/bar
 entries, and marks its standalone plugin disabled. This gives the engine a
 single owner, preserving the original tracking history, KDE Connect pairing
 and Nearby identity. Re-enabling a standalone plugin makes the Hub relinquish
@@ -250,7 +250,7 @@ All optional — declare what you need and ignore the rest.
 | `function tabHidden()` | stopped being it — tab switch or panel close |
 | `function panelClosed()` | panel dismissed; drop transient state |
 
-Settings are shared: every tab reads and writes the one `kevin.hub` entry in
+Settings are shared: every tab reads and writes the one `kevinbsr.omahub` entry in
 `shell.json`, so prefix keys that could collide.
 
 There is one bar widget per monitor and one shared `Panel.qml` in the singleton
@@ -310,7 +310,7 @@ the calendar every time, whatever tab the panel closed on; a second click
 with that page already up is what closes the panel, and clicking a different
 glyph switches pages instead of closing.
 
-The persisted last-used tab still governs `omarchy-shell kevin.hub toggle`
+The persisted last-used tab still governs `omarchy-shell kevinbsr.omahub toggle`
 and a fresh session — it is only the bar's glyphs that override it, because
 each one is a question with a specific answer.
 
@@ -325,12 +325,12 @@ becoming a pause bar — would otherwise drag the whole center row sideways.
 ## IPC
 
 ```bash
-omarchy-shell kevin.hub toggle
-omarchy-shell kevin.hub tab weather    # open straight onto a page
-omarchy-shell kevin.hub tabToggle calendar  # what the clock glyph does
-omarchy-shell kevin.hub cycleFormat    # same as right-clicking the label
-omarchy-shell kevin.hub refreshWeather
-omarchy-shell kevin.hub.media playPause # Hub player ranking and source choice
+omarchy-shell kevinbsr.omahub toggle
+omarchy-shell kevinbsr.omahub tab weather    # open straight onto a page
+omarchy-shell kevinbsr.omahub tabToggle calendar  # what the clock glyph does
+omarchy-shell kevinbsr.omahub cycleFormat    # same as right-clicking the label
+omarchy-shell kevinbsr.omahub refreshWeather
+omarchy-shell kevinbsr.omahub.media playPause # Hub player ranking and source choice
 ```
 
 ## Gotcha

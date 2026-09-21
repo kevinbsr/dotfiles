@@ -11,6 +11,31 @@ import time
 
 ALLOWED = {"agx.screen-time", "omaconnect", "oma.nearby", "io.github.ayan-de.android-mirror"}
 
+# Plugins the Hub knows how to host as a service but that only ever declared a
+# UI kind, because nothing else was meant to load them. Enabling one of these
+# adds the missing kind/entryPoint to that plugin's OWN manifest.json first --
+# see android-mirror/VENDORED.md for why android-mirror needs this and the
+# upstream PR that would remove the need for it.
+MANIFEST_PATCHES = {
+    "io.github.ayan-de.android-mirror": {"kind": "service", "entryPoint": "MirrorBackend.qml"},
+}
+
+
+def patch_manifest_for_service(plugin_id, manifest_path, manifest):
+    patch = MANIFEST_PATCHES.get(plugin_id)
+    if not patch:
+        return False
+    if patch["kind"] in manifest.get("kinds", []) and manifest.get("entryPoints", {}).get("service"):
+        return False
+    updated = copy.deepcopy(manifest)
+    if patch["kind"] not in updated.setdefault("kinds", []):
+        updated["kinds"].append(patch["kind"])
+    updated.setdefault("entryPoints", {})["service"] = patch["entryPoint"]
+    manifest_path.write_text(json.dumps(updated, indent=2, ensure_ascii=False) + "\n")
+    manifest.clear()
+    manifest.update(updated)
+    return True
+
 
 def entry_id(entry):
     return entry.get("id") if isinstance(entry, dict) else entry
@@ -37,16 +62,16 @@ def service_config(config, plugin_id):
             settings.update(entry)
     settings.pop("id", None)
     result["plugins"] = [entry for entry in plugins if entry_id(entry) != plugin_id]
-    hub_entries = [entry for entry in result["plugins"] if entry_id(entry) == "kevin.hub"]
+    hub_entries = [entry for entry in result["plugins"] if entry_id(entry) == "kevinbsr.omahub"]
     for section, entries in layout.items():
         for index, entry in enumerate(entries):
-            if entry_id(entry) == "kevin.hub":
+            if entry_id(entry) == "kevinbsr.omahub":
                 if isinstance(entry, str):
-                    entry = {"id": "kevin.hub"}
+                    entry = {"id": "kevinbsr.omahub"}
                     entries[index] = entry
                 hub_entries.append(entry)
     if not hub_entries:
-        hub_entries = [{"id": "kevin.hub"}]
+        hub_entries = [{"id": "kevinbsr.omahub"}]
         result["plugins"].append(hub_entries[0])
     # Keep every Hub entry consistent (some installations use several bars).
     integrations = {}
@@ -74,6 +99,8 @@ def main():
     installed = False
     if manifest_path.exists():
         manifest = json.loads(manifest_path.read_text())
+        if args.action == "enable":
+            patch_manifest_for_service(args.plugin_id, manifest_path, manifest)
         installed = "service" in manifest.get("kinds", []) and manifest.get("id") == args.plugin_id
     config_path = (Path.home() / ".config/omarchy/shell.json").resolve()
     if args.action == "status":
@@ -82,7 +109,7 @@ def main():
         for region in config.get("bar", {}).get("layout", {}).values():
             entries.extend(region)
         enabled = installed and args.plugin_id in config.get("disabledPlugins", []) and any(
-            isinstance(e, dict) and e.get("id") == "kevin.hub" and args.plugin_id in e.get("integrations", {})
+            isinstance(e, dict) and e.get("id") == "kevinbsr.omahub" and args.plugin_id in e.get("integrations", {})
             for e in entries
         )
         print(json.dumps({"installed": installed, "enabled": enabled}))
