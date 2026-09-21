@@ -21,6 +21,7 @@ Item {
   readonly property var screenTime: screenLoader.item
   readonly property var phone: phoneLoader.item
   readonly property var nearby: nearbyLoader.item ? nearbyLoader.item.item : null
+  readonly property var mirror: mirrorLoader.item
   property string screenSessionApp: ""
   property double screenSessionStartedAt: 0
 
@@ -66,9 +67,12 @@ Item {
   component ManifestServicePath: FileView {
     id: manifestFile
     required property string pluginId
-    // Until the manifest loads, or if it fails to, fall back to the
-    // convention every one of these plugins started with.
-    property string servicePath: "Service.qml"
+    // Until the manifest loads, or if it fails to, fall back to the name the
+    // engine is known to ship as today -- "Service.qml" for the three that
+    // declare a service entry point, something else for one that does not
+    // yet (see mirrorManifest below).
+    property string fallbackPath: "Service.qml"
+    property string servicePath: fallbackPath
     path: Quickshell.env("HOME") + "/.config/omarchy/plugins/" + pluginId + "/manifest.json"
     onLoaded: {
       try {
@@ -84,6 +88,15 @@ Item {
   ManifestServicePath { id: screenManifest; pluginId: "agx.screen-time" }
   ManifestServicePath { id: phoneManifest; pluginId: "omaconnect" }
   ManifestServicePath { id: nearbyManifest; pluginId: "oma.nearby" }
+  // io.github.ayan-de.android-mirror's own manifest now declares
+  // entryPoints.service (a local patch: upstream only ever shipped
+  // MirrorBackend.qml as an internal file behind its Panel.qml bar widget,
+  // with no service entry point of its own). The fallback below is what to
+  // use if `omarchy plugin update` overwrites that patch before an upstream
+  // PR lands -- MirrorBackend.qml is where the file has lived since the
+  // plugin's first release, unlike agx.screen-time's Service.qml, which had
+  // already moved once by the time this was written.
+  ManifestServicePath { id: mirrorManifest; pluginId: "io.github.ayan-de.android-mirror"; fallbackPath: "MirrorBackend.qml" }
 
   // Whether each engine is enabled and its Loader landed on Error rather than
   // Ready -- a bad source URL or a QML error in the file it names, which is
@@ -96,6 +109,7 @@ Item {
   readonly property bool phoneFailed: phoneLoader.active && phoneLoader.status === Loader.Error
   readonly property var nearbyInnerLoader: nearbyLoader.item
   readonly property bool nearbyFailed: !!nearbyInnerLoader && nearbyInnerLoader.status === Loader.Error
+  readonly property bool mirrorFailed: mirrorLoader.active && mirrorLoader.status === Loader.Error
 
   // One notification, not a stream: the synchronous-id hint below has the
   // notification daemon replace this plugin's previous copy instead of
@@ -113,6 +127,7 @@ Item {
   onScreenTimeFailedChanged: if (screenTimeFailed) reportIntegrationFailure("agx.screen-time", "Screen Time")
   onPhoneFailedChanged: if (phoneFailed) reportIntegrationFailure("omaconnect", "Phone")
   onNearbyFailedChanged: if (nearbyFailed) reportIntegrationFailure("oma.nearby", "Nearby")
+  onMirrorFailedChanged: if (mirrorFailed) reportIntegrationFailure("io.github.ayan-de.android-mirror", "Android Mirror")
 
   // The Nearby engine only needs its own receiver preferences and panel routes.
   QtObject {
@@ -153,5 +168,20 @@ Item {
         Component.onCompleted: setSource(Qt.resolvedUrl("../oma.nearby/" + nearbyManifest.servicePath), {shell: nearbyHost})
       }
     }
+  }
+  Loader {
+    id: mirrorLoader
+    active: root.enabled("io.github.ayan-de.android-mirror")
+    source: Qt.resolvedUrl("../io.github.ayan-de.android-mirror/" + mirrorManifest.servicePath)
+    // MirrorBackend reads its own settings (adb/scrcpy paths, bitrate,
+    // resolution) off a `settings` property the same way its standalone bar
+    // widget feeds it -- but there is no bar widget in this path to do the
+    // feeding, so it goes here. A live binding, not a one-time copy, so
+    // changing a value in the standalone plugin's own settings panel (which
+    // still writes the same shell.json entry) reaches the running mirror
+    // without a shell restart.
+    onLoaded: if (item) item.settings = Qt.binding(function() {
+      return root.settings["io.github.ayan-de.android-mirror"] || {}
+    })
   }
 }

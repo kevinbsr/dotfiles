@@ -9,7 +9,7 @@ from pathlib import Path
 import tempfile
 import time
 
-ALLOWED = {"agx.screen-time", "omaconnect", "oma.nearby"}
+ALLOWED = {"agx.screen-time", "omaconnect", "oma.nearby", "io.github.ayan-de.android-mirror"}
 
 
 def entry_id(entry):
