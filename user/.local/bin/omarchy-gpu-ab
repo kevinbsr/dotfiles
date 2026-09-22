@@ -13,7 +13,7 @@
 #
 # Phases: idle, video on DP-1 and on eDP-1 (compositor load + mpv's own frame
 # pacing), and
-# kevin.hub opens on eDP-1 scored frame by frame by omarchy-panel-bench -- eDP-1
+# kevinbsr.omahub opens on eDP-1 scored frame by frame by omarchy-panel-bench -- eDP-1
 # is the output that crosses GPUs in NVIDIA mode, so it is the one that could
 # get worse.
 #
@@ -173,7 +173,7 @@ video_phase DP-1
 video_phase eDP-1
 
 # ---- phase 3: hub opens on eDP-1 -----------------------------------------
-say ""; say "## kevin.hub opens on eDP-1 (empty workspace), frame-scored"
+say ""; say "## kevinbsr.omahub opens on eDP-1 (empty workspace), frame-scored"
 if goto_empty eDP-1; then
 sleep 1
 "$HOME/.local/bin/omarchy-panel-bench" "$SHELL_DIR" "ab-$MODE" 5 2>&1 | sed 's/^/  /' | tee -a "$REPORT" >/dev/null

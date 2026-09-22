@@ -8,7 +8,7 @@
     "omarchy.keyboard-layout",
     "omarchy.system-update",
     "omarchy.indicators",
-    "kevin.hub"
+    "kevinbsr.omahub"
   ],
   "right": [
     "omarchy.tray",
