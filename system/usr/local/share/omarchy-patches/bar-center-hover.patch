@@ -1,6 +1,53 @@
---- a/usr/share/omarchy/shell/plugins/bar/Bar.qml	2026-09-15 06:12:52.695641628 -0300
-+++ b/usr/share/omarchy/shell/plugins/bar/Bar.qml	2026-09-15 06:30:23.955109167 -0300
-@@ -1597,11 +1597,23 @@
+--- a/usr/share/omarchy/shell/plugins/bar/Bar.qml
++++ b/usr/share/omarchy/shell/plugins/bar/Bar.qml
+@@ -1597,11 +1597,28 @@
+ 
+         CenterGestureArea { anchors.fill: parent }
+ 
+-        HoverHandler {
+-          onHoveredChanged: root.setCenterSectionHovered(hovered)
++        // Local change (kevin, 2026-09-21): same fix as verticalCenterModules
++        // below, applied to the horizontal case it was missing from. The
++        // reveal hover used to fill this item, which fills the whole bar --
++        // and since revealing widens the indicator section, it can shift
++        // where this content sits, un-hovering and re-hovering in a loop
++        // that never settles on its own. Limit it to the span of the center
++        // modules, so a width change caused by the indicators can no longer
++        // move this area's edge under a stationary pointer.
++        Item {
++          readonly property Item first: centerRoot.hasAnchor ? centerBefore : centerPlain
++          readonly property Item last: centerRoot.hasAnchor ? centerAfter : centerPlain
++          x: Math.min(first.x, centerAnchorModule.visible ? centerAnchorModule.x : first.x)
++          width: Math.max(last.x + last.width, centerAnchorModule.visible ? centerAnchorModule.x + centerAnchorModule.width : 0) - x
++          height: parent.height
++
++          HoverHandler {
++            onHoveredChanged: root.setCenterSectionHovered(hovered)
++          }
+         }
+ 
+         ModuleList {
++          id: centerPlain
+           visible: !centerRoot.hasAnchor
+           entries: centerRoot.entries
+           region: "center"
+@@ -1609,6 +1626,7 @@
+         }
+ 
+         ModuleList {
++          id: centerBefore
+           visible: centerRoot.hasAnchor
+           entries: root.entriesBefore(centerRoot.entries, root.centerAnchor)
+           region: "center"
+@@ -1625,6 +1643,7 @@
+         }
+ 
+         ModuleList {
++          id: centerAfter
+           visible: centerRoot.hasAnchor
+           entries: root.entriesAfter(centerRoot.entries, root.centerAnchor)
+           region: "center"
+@@ -1642,11 +1661,23 @@
  
          CenterGestureArea { anchors.fill: parent }
  
@@ -26,7 +73,7 @@
            visible: !centerRoot.hasAnchor
            entries: centerRoot.entries
            region: "center"
-@@ -1609,6 +1621,7 @@
+@@ -1654,6 +1685,7 @@
          }
  
          ModuleList {
@@ -34,7 +81,7 @@
            visible: centerRoot.hasAnchor
            entries: root.entriesBefore(centerRoot.entries, root.centerAnchor)
            region: "center"
-@@ -1625,6 +1638,7 @@
+@@ -1670,6 +1702,7 @@
          }
  
          ModuleList {
