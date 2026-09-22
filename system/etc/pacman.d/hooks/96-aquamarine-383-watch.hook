@@ -1,12 +1,18 @@
-# aquamarine here is the official package plus one patch: the fix for
-# hyprwm/aquamarine#383, which is still open upstream and is not in 0.15.1.
-# Without it the DRM backend's destructor dereferences connectors it has just
-# reset, and Hyprland segfaults on every exit with more than one output.
-# Built from ~/.local/src/aquamarine-383/repo, pkgrel 1.1.
+# aquamarine here is the official package plus two local patches, built from
+# ~/.local/src/aquamarine-383/repo (recipe in ~/dotfiles/build/aquamarine-383):
+#
+#  - hyprwm/aquamarine#383, still open upstream and not in 0.15.1. Without it
+#    the DRM backend's destructor dereferences connectors it has just reset,
+#    and Hyprland segfaults on every exit with more than one output.
+#  - egl-terminate-secondary-display: since #373 (0.15.1) the secondary
+#    (NVIDIA) renderer's EGL display is never terminated, because no driver here
+#    exposes EGL_KHR_display_reference. After undocking the dGPU then stays in
+#    D0 (~10 W on battery) until the compositor restarts.
 #
 # The companion patch for #386 is gone: 0.15.1 carries the upstream fix (PR
 # #410), which is why this hook replaced 96-aquamarine-pr395-watch.hook.
 #
+# Local rebuilds carry a dotted pkgrel (1.1, 1.2, ...); repo builds never do.
 # Any repo upgrade replaces the rebuild silently, so say so loudly.
 [Trigger]
 Operation = Install
@@ -15,6 +21,6 @@ Type = Package
 Target = aquamarine
 
 [Action]
-Description = Checking whether the patched aquamarine rebuild (#383) was replaced...
+Description = Checking whether the patched aquamarine rebuild was replaced...
 When = PostTransaction
-Exec = /bin/sh -c 'v=$(pacman -Q aquamarine | cut -d" " -f2); case "$v" in *-1.1) echo "aquamarine $v: local rebuild with the #383 exit-crash fix in place." ;; *) echo "WARNING: aquamarine $v replaced the local rebuild. If hyprwm/aquamarine#383 is not fixed in it, Hyprland segfaults on every logout with more than one output; rebuild from ~/.local/src/aquamarine-383/repo." ;; esac'
+Exec = /bin/sh -c 'v=$(pacman -Q aquamarine | cut -d" " -f2); case "$v" in *-*.*) echo "aquamarine $v: local rebuild with the #383 exit-crash fix and the secondary EGL display release in place." ;; *) echo "WARNING: aquamarine $v replaced the local rebuild. Unless fixed upstream: Hyprland segfaults on every logout with more than one output (#383), and the NVIDIA dGPU stays awake after undocking (secondary EGL display never terminated). Rebuild from ~/.local/src/aquamarine-383/repo." ;; esac'

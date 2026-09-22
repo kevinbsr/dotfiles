@@ -3,7 +3,7 @@
 
 pkgname=aquamarine
 pkgver=0.15.1
-pkgrel=1.1
+pkgrel=1.2
 pkgdesc='a very light linux rendering backend library'
 arch=(x86_64 aarch64)
 url="https://github.com/hyprwm/$pkgname"
@@ -35,11 +35,20 @@ source=("$url/archive/v$pkgver/$_archive.tar.gz")
 # more than one output. The PR #395 patch that used to sit beside this one is
 # gone: 0.15.1 carries the upstream fix for #386 (PR #410).
 source+=('issue383-exit-null-connector.patch')
+# Local: since #373 (0.15.1) ~CDRMRenderer only calls eglTerminate when the
+# driver has EGL_KHR_display_reference, which neither NVIDIA nor Mesa expose
+# here. The secondary (NVIDIA) renderer is dropped when its last output goes
+# away, but its EGL display stays initialized, so the dGPU never reaches
+# runtime D3 after undocking (~10 W on battery until the compositor restarts).
+# Terminate the display for secondary-backend renderers only; the compositor's
+# own EGL state lives on the primary GPU and is untouched.
+source+=('egl-terminate-secondary-display.patch')
 sha256sums=('2f9de98c0bd1b7b1b09c576e390a2fef436449762fb334163c414f0c300296f2')
-sha256sums+=('SKIP')
+sha256sums+=('SKIP' 'SKIP')
 
 prepare() {
   patch -d $_archive -p1 < issue383-exit-null-connector.patch
+  patch -d $_archive -p1 < egl-terminate-secondary-display.patch
 }
 
 build() {

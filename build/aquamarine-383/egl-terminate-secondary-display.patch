@@ -1,0 +1,50 @@
+diff -ru a/src/backend/drm/DRM.cpp b/src/backend/drm/DRM.cpp
+--- a/src/backend/drm/DRM.cpp	2026-09-17 17:59:13.912072051 -0300
++++ b/src/backend/drm/DRM.cpp	2026-09-22 11:33:53.177584984 -0300
+@@ -889,6 +889,14 @@
+ 
+     rendererState.renderer->self = rendererState.renderer;
+ 
++    // A secondary GPU's renderer is the only user of that device's EGL display
++    // (the compositor renders on the primary), so it is safe to terminate the
++    // display when updateSecondaryRendererState() drops the renderer. Without
++    // this, the display stays initialized after the last output on the GPU is
++    // gone and the dGPU never runtime-suspends.
++    if (primary)
++        rendererState.renderer->terminateDisplayOnDestroy = true;
++
+     buildGlFormats(rendererState.renderer->formats);
+ 
+     return true;
+diff -ru a/src/backend/drm/Renderer.cpp b/src/backend/drm/Renderer.cpp
+--- a/src/backend/drm/Renderer.cpp	2026-09-17 04:32:02.000000000 -0300
++++ b/src/backend/drm/Renderer.cpp	2026-09-22 11:33:46.568558213 -0300
+@@ -387,8 +387,9 @@
+ 
+     // without EGL_KHR_display_reference, eglTerminate destroys a display that may be shared
+     // with other users of the same device in this process (e.g. the compositor's own EGL state),
+-    // invalidating their contexts. Only terminate when reference tracking is in effect.
+-    if (egl.display && exts.KHR_display_reference)
++    // invalidating their contexts. Only terminate when reference tracking is in effect, or when
++    // the owner vouches that nothing else uses this device's display (terminateDisplayOnDestroy).
++    if (egl.display && (exts.KHR_display_reference || terminateDisplayOnDestroy))
+         eglTerminate(egl.display);
+ 
+     eglReleaseThread();
+diff -ru a/src/backend/drm/Renderer.hpp b/src/backend/drm/Renderer.hpp
+--- a/src/backend/drm/Renderer.hpp	2026-09-17 04:32:02.000000000 -0300
++++ b/src/backend/drm/Renderer.hpp	2026-09-22 11:33:40.735534586 -0300
+@@ -96,6 +96,13 @@
+ 
+         int                                                    drmFD = -1;
+ 
++        // Terminate egl.display on destruction even without KHR_display_reference.
++        // Only set for a secondary DRM backend's renderer: nothing else in the
++        // process holds that device's display, and leaving it initialized keeps
++        // the GPU powered (an NVIDIA dGPU never reaches runtime D3 after its last
++        // output goes away).
++        bool                                                   terminateDisplayOnDestroy = false;
++
+         struct SBlitResult {
+             bool               success = false;
+             std::optional<int> syncFD;
