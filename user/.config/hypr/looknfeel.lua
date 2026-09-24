@@ -66,3 +66,24 @@ hl.layer_rule({
   no_anim = true,
   animation = "none",
 })
+
+-- Draw the hardware cursor from a CPU-accessible buffer.
+--
+-- On auto (the default), aquamarine allocates the cursor buffer on one GPU and
+-- then has to blit it to the other for outputs the secondary backend drives.
+-- That blit fails here, every time, on every cursor update:
+--
+--   EGL (blit): glCheckFramebufferStatus failed: 1282
+--   drm: Backend requires blit, but cursor blit failed
+--
+-- 6288 of those in this session's log, in bursts, each burst allocating a fresh
+-- EGL image for a blit that never lands. libinput's own complaints sit inside
+-- those bursts -- 55 of its 61 "event processing lagging behind" warnings, up to
+-- 452 ms -- which is the cursor stuttering and freezing while being moved.
+-- Measured 2026-09-24. Related: hyprwm/aquamarine#408 (same multi-GPU import
+-- failure on the frame path).
+hl.config({
+  cursor = {
+    use_cpu_buffer = true,
+  },
+})
