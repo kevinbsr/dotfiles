@@ -1,6 +1,6 @@
---- a/usr/bin/omarchy-update-available	2026-09-15 20:20:04.218505122 -0300
-+++ b/usr/bin/omarchy-update-available	2026-09-15 20:20:04.245791029 -0300
-@@ -4,6 +4,28 @@
+--- a/usr/bin/omarchy-update-available
++++ b/usr/bin/omarchy-update-available
+@@ -4,6 +4,41 @@
  
  set -euo pipefail
  
@@ -25,6 +25,19 @@
 +  cat "$cache.out"
 +  exit "$rc"
 +fi
++
++# Local change (kevin, 2026-09-24): give checkupdates a database of its own.
++# The lock above only serializes copies of THIS script; it does nothing about
++# anyone else on the machine running checkupdates, and the default database
++# (${TMPDIR:-/tmp}/checkup-db-$UID) is shared by every caller, with each one
++# deleting that database's lock file as it exits. So a third-party updates
++# widget refreshing on its own schedule -- or a plain `checkupdates` in a
++# terminal -- makes this run fail with "Cannot fetch updates", print nothing,
++# and conclude Omarchy is up to date, hiding the icon until the next six-hour
++# check. Measured 2026-09-24: two concurrent runs on the shared database, one
++# returned 146 lines and the other exited 1 with no output; with a private
++# database both returned 146.
++export CHECKUPDATES_DB="${XDG_RUNTIME_DIR:-/tmp}/omarchy-checkup-db-$UID"
 +
  updates=()
  
