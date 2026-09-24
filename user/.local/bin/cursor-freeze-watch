@@ -69,6 +69,15 @@ print(json.dumps([{"name": m["name"], "hz": round(m["refreshRate"], 2), "dpms": 
 ' 2>/dev/null || echo '[]')
 
   dgpu=$(cat /sys/bus/pci/devices/0000:01:00.0/power/runtime_status 2>/dev/null || echo unknown)
+  # Process creations since boot. The per-minute delta is the cheapest measure
+  # of scheduler churn there is -- no polling, no child processes -- and it is
+  # what caught a tool spawning `mise` 35 times a second on 2026-09-24, which
+  # is the kind of storm that makes the compositor miss input without any log
+  # anywhere saying so.
+  forks=$(awk '/^processes/{print $2}' /proc/stat 2>/dev/null)
+  forks=${forks:-0}
+  ctxt=$(awk '/^ctxt/{print $2}' /proc/stat 2>/dev/null)
+  ctxt=${ctxt:-0}
   load=$(awk '{print $1}' /proc/loadavg)
   psi_cpu=$(awk '/^some/{for(i=1;i<=NF;i++) if($i ~ /^avg10=/){sub("avg10=","",$i); print $i}}' /proc/pressure/cpu 2>/dev/null)
   psi_io=$(awk '/^some/{for(i=1;i<=NF;i++) if($i ~ /^avg10=/){sub("avg10=","",$i); print $i}}' /proc/pressure/io 2>/dev/null)
@@ -82,15 +91,15 @@ print(json.dumps([{"name": m["name"], "hz": round(m["refreshRate"], 2), "dpms": 
   hypr_cpu=${hypr_cpu:-0}
 
   # Deltas against the previous sample; a new session resets the counters.
-  local p_sig="" p_blit=0 p_lag=0 p_cpu=0 session_changed=false
+  local p_sig="" p_blit=0 p_lag=0 p_cpu=0 p_forks=0 p_ctxt=0 session_changed=false
   if [[ -f $LAST ]]; then
-    read -r p_sig p_blit p_lag p_cpu < <(python3 -c '
+    read -r p_sig p_blit p_lag p_cpu p_forks p_ctxt < <(python3 -c '
 import json,sys
 try:
     d = json.load(open(sys.argv[1]))
 except Exception:
     d = {}
-print(d.get("sig",""), d.get("blit",0), d.get("lag",0), d.get("hypr_cpu",0))
+print(d.get("sig",""), d.get("blit",0), d.get("lag",0), d.get("hypr_cpu",0), d.get("forks",0), d.get("ctxt",0))
 ' "$LAST" 2>/dev/null)
   fi
   # A new session (or the first run) starts counting from what is already
@@ -101,15 +110,18 @@ print(d.get("sig",""), d.get("blit",0), d.get("lag",0), d.get("hypr_cpu",0))
     p_blit=$blit; p_lag=$lag; p_cpu=$hypr_cpu
   fi
   local d_blit=$(( blit - p_blit )) d_lag=$(( lag - p_lag )) d_cpu=$(( hypr_cpu - p_cpu ))
+  local d_forks=$(( forks - p_forks )) d_ctxt=$(( ctxt - p_ctxt ))
+  (( d_forks < 0 || p_forks == 0 )) && d_forks=0
+  (( d_ctxt < 0 || p_ctxt == 0 )) && d_ctxt=0
   (( d_blit < 0 )) && d_blit=0
   (( d_lag < 0 )) && d_lag=0
   (( d_cpu < 0 )) && d_cpu=0
 
-  printf '{"ts":"%s","sig":"%s","session_changed":%s,"blit":%d,"blit_delta":%d,"lag":%d,"lag_delta":%d,"worst_lag_ms":%d,"hypr_cpu":%d,"hypr_cpu_delta":%d,"use_cpu_buffer":%s,"no_hardware_cursors":%s,"dgpu":"%s","load1":%s,"psi_cpu10":%s,"psi_io10":%s,"monitors":%s}\n' \
+  printf '{"ts":"%s","sig":"%s","session_changed":%s,"blit":%d,"blit_delta":%d,"lag":%d,"lag_delta":%d,"worst_lag_ms":%d,"hypr_cpu":%d,"hypr_cpu_delta":%d,"use_cpu_buffer":%s,"no_hardware_cursors":%s,"dgpu":"%s","load1":%s,"psi_cpu10":%s,"psi_io10":%s,"forks":%d,"forks_per_min":%d,"ctxt":%d,"ctxt_per_min":%d,"monitors":%s}\n' \
     "$ts" "$sig" "$session_changed" "$blit" "$d_blit" "$lag" "$d_lag" "$worst" "$hypr_cpu" "$d_cpu" \
-    "${cpu_buffer:--1}" "${no_hw:--1}" "$dgpu" "${load:-0}" "${psi_cpu:-0}" "${psi_io:-0}" "$monitors" >>"$SAMPLES"
+    "${cpu_buffer:--1}" "${no_hw:--1}" "$dgpu" "${load:-0}" "${psi_cpu:-0}" "${psi_io:-0}" "$forks" "$d_forks" "$ctxt" "$d_ctxt" "$monitors" >>"$SAMPLES"
 
-  printf '{"sig":"%s","blit":%d,"lag":%d,"hypr_cpu":%d}\n' "$sig" "$blit" "$lag" "$hypr_cpu" >"$LAST"
+  printf '{"sig":"%s","blit":%d,"lag":%d,"hypr_cpu":%d,"forks":%d,"ctxt":%d}\n' "$sig" "$blit" "$lag" "$hypr_cpu" "$forks" "$ctxt" >"$LAST"
 
   # Keep the file bounded: drop the oldest half rather than everything, so a
   # long-running watch never loses the last day to a rotation.
