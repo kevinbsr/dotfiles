@@ -180,6 +180,32 @@ if bursts:
 else:
     print("\nno new blit failures or input lag warnings in this window")
 
+stalls_path = path.replace("samples.jsonl", "stalls.jsonl")
+stalls = []
+try:
+    for line in open(stalls_path):
+        line = line.strip()
+        if not line:
+            continue
+        r = json.loads(line)
+        if datetime.datetime.fromisoformat(r["ts"]) >= cutoff and not r.get("probe_gap"):
+            stalls.append(r)
+except FileNotFoundError:
+    pass
+
+if stalls:
+    worst = max(stalls, key=lambda r: r["stall_ms"])
+    print(f"\ncursor stalls mid-movement ({len(stalls)}, worst {worst['stall_ms']} ms):")
+    for r in sorted(stalls, key=lambda r: r["stall_ms"], reverse=True)[:15]:
+        bt = {True: "bt-audio", False: "no-bt", None: "bt?"}[r.get("bt_audio")]
+        print(f"  {r['ts'][11:19]}  {r['stall_ms']:6.1f} ms  in at {r['speed_px_s']} px/s, "
+              f"out jumping {r['jump_px']} px  {bt}")
+    jumped = [r for r in stalls if r["jump_px"] >= 40]
+    print(f"  {len(jumped)} of {len(stalls)} resumed with a jump >= 40 px "
+          "(queued motion delivered late = compositor side; no jump = motion never arrived)")
+else:
+    print("\nno cursor stalls recorded mid-movement")
+
 if marks:
     print("\nmarks:")
     for m in marks:

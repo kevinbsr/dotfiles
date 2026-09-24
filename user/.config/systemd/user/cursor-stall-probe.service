@@ -1,0 +1,19 @@
+[Unit]
+Description=Catch the cursor standing still while it is being moved
+Documentation=file:%h/.local/bin/cursor-stall-probe
+# Temporary: added 2026-09-24. Remove with
+#   systemctl --user disable --now cursor-stall-probe.service
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/cursor-stall-probe
+Restart=always
+RestartSec=10
+Nice=-5
+# The probe must not be the thing that stutters: it measures its own scheduling
+# and discards any sample where it was descheduled longer than the stall.
+
+[Install]
+WantedBy=graphical-session.target

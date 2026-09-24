@@ -1,0 +1,193 @@
+#!/usr/bin/env python3
+"""Catch the cursor standing still while it is being moved.
+
+WHY THIS EXISTS: the cursor freezes in bursts. The first suspect -- a cross-GPU
+cursor blit that always fails -- was silenced on 2026-09-24 by
+cursor:use_cpu_buffer, and the per-minute counters confirm it: 13 failures in
+the five hours after, against 6288 before. Kevin then felt a freeze anyway,
+with no blit failure and no libinput lag warning anywhere near it. So the
+freeze that remains does not announce itself in any log, and needs an
+instrument of its own.
+
+This polls Hyprland for the cursor position at 100 Hz (0.04 ms per query over
+its own socket, measured) and records every moment where the pointer stops
+while a movement is clearly in progress: it was moving just before, it is
+moving again just after, and in between it stood still long enough to see.
+
+A stall recorded here means the compositor's idea of the pointer stopped
+updating -- which is what the eye sees, and what neither the compositor log nor
+libinput reports when the events simply never arrive (a 2.4 GHz receiver losing
+packets looks exactly like this, and says nothing).
+
+The probe's own scheduling is measured too: if this process was descheduled for
+longer than the stall it is about to report, the sample is marked `probe_gap`
+and does not count. An instrument that cannot tell its own hiccup from the
+thing it measures is worse than none.
+
+Records go to ~/.local/state/cursor-freeze-watch/stalls.jsonl.
+"""
+
+import glob
+import json
+import os
+import pathlib
+import socket
+import subprocess
+import sys
+import time
+
+STATE = pathlib.Path(os.environ.get("XDG_STATE_HOME", pathlib.Path.home() / ".local/state")) / "cursor-freeze-watch"
+STALLS = STATE / "stalls.jsonl"
+RUNTIME = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+
+POLL = 0.010           # 100 Hz
+STALL_MIN = 0.050      # shortest stall worth recording, seconds
+STALL_MAX = 2.000      # longer than this is not a freeze, it is a person
+                       # letting go of the mouse; recording those would bury
+                       # the real ones under every coffee break
+MOVING_WINDOW = 0.500  # "was moving" means: moved within this much time
+MIN_SPEED = 250.0      # px/s in the moment before the stall. Without this the
+                       # file fills with ordinary pauses: a hand moving a mouse
+                       # stops for 50-200 ms constantly, mid-gesture, and that
+                       # is indistinguishable from a freeze by position alone.
+                       # Mid-swipe at speed is where a freeze is unmistakable.
+SPEED_WINDOW = 0.200   # how far back to measure that speed
+CONTEXT_EVERY = 5.0    # how often to refresh the cheap context below
+
+
+def socket_path():
+    logs = sorted(glob.glob(f"{RUNTIME}/hypr/*/hyprland.log"), key=os.path.getmtime)
+    if not logs:
+        return None
+    sig = os.path.basename(os.path.dirname(logs[-1]))
+    return f"{RUNTIME}/hypr/{sig}/.socket.sock"
+
+
+def cursorpos(path):
+    try:
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.settimeout(0.5)
+        s.connect(path)
+        s.sendall(b"cursorpos")
+        out = s.recv(64).decode().strip()
+        s.close()
+        x, _, y = out.partition(",")
+        return int(x), int(y)
+    except Exception:
+        return None
+
+
+def bluetooth_audio_active():
+    """Is something streaming over Bluetooth right now?
+
+    The 2.4 GHz band is shared between the Bolt receiver and this machine's
+    Bluetooth radio, so whether audio was streaming is the first thing to know
+    about a stall.
+    """
+    try:
+        out = subprocess.run(["pactl", "list", "sink-inputs"], capture_output=True,
+                             text=True, timeout=3).stdout
+        if "bluez" not in out.lower():
+            return False
+        return "state: running" in out.lower()
+    except Exception:
+        return None
+
+
+def context():
+    ctx = {"bt_audio": bluetooth_audio_active()}
+    try:
+        logs = sorted(glob.glob(f"{RUNTIME}/hypr/*/hyprland.log"), key=os.path.getmtime)
+        if logs:
+            with open(logs[-1], "rb") as fh:
+                data = fh.read()
+            ctx["blit"] = data.count(b"cursor blit failed")
+            ctx["lag"] = data.count(b"lagging behind")
+    except Exception:
+        pass
+    return ctx
+
+
+def main():
+    STATE.mkdir(parents=True, exist_ok=True)
+    path = socket_path()
+    while path is None:
+        time.sleep(5)
+        path = socket_path()
+
+    last_pos = cursorpos(path)
+    last_move = 0.0          # when the position last changed
+    still_since = None       # when it stopped changing
+    trail = []               # recent (time, pos), for the pre-stall speed
+    ctx, ctx_at = context(), time.time()
+    worst_loop = 0.0         # longest gap in this process's own sampling
+    prev_tick = time.perf_counter()
+
+    while True:
+        time.sleep(POLL)
+        now = time.perf_counter()
+        loop_gap = now - prev_tick
+        prev_tick = now
+        worst_loop = max(worst_loop, loop_gap)
+
+        pos = cursorpos(path)
+        if pos is None:                    # compositor gone or restarted
+            time.sleep(2)
+            new_path = socket_path()
+            if new_path:
+                path = new_path
+            worst_loop = 0.0
+            continue
+
+        if pos != last_pos:
+            # It moved. If it had been standing still while a movement was in
+            # progress, that gap is the thing being hunted.
+            if still_since is not None:
+                stall = now - still_since
+                was_moving_before = (still_since - last_move) < MOVING_WINDOW
+                # Speed over the window that ended when it stopped.
+                older = [(t_, p) for t_, p in trail if still_since - t_ <= SPEED_WINDOW]
+                speed = 0.0
+                if older:
+                    t0, p0 = older[0]
+                    dt = still_since - t0
+                    if dt > 0:
+                        speed = (abs(p0[0] - last_pos[0]) ** 2 + abs(p0[1] - last_pos[1]) ** 2) ** 0.5 / dt
+                jump = (abs(pos[0] - last_pos[0]) ** 2 + abs(pos[1] - last_pos[1]) ** 2) ** 0.5
+                if STALL_MIN <= stall <= STALL_MAX and was_moving_before and speed >= MIN_SPEED:
+                    if time.time() - ctx_at > CONTEXT_EVERY:
+                        ctx, ctx_at = context(), time.time()
+                    record = {
+                        "ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+                        "stall_ms": round(stall * 1000, 1),
+                        "probe_gap_ms": round(worst_loop * 1000, 1),
+                        "probe_gap": worst_loop >= stall * 0.5,
+                        # Speed going in, and how far it jumped coming out. A
+                        # compositor that stalled delivers the queued motion at
+                        # once and jumps; a receiver that dropped packets loses
+                        # that motion and resumes where it left off.
+                        "speed_px_s": round(speed),
+                        "jump_px": round(jump),
+                        "from": list(last_pos),
+                        "to": list(pos),
+                        **ctx,
+                    }
+                    with open(STALLS, "a") as fh:
+                        fh.write(json.dumps(record) + "\n")
+            last_move = now
+            still_since = None
+            worst_loop = 0.0
+            trail.append((now, pos))
+            trail = [(t_, p) for t_, p in trail if now - t_ <= SPEED_WINDOW * 2]
+        else:
+            if still_since is None:
+                still_since = now
+
+        last_pos = pos
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        sys.exit(0)
