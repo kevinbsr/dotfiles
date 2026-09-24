@@ -185,6 +185,14 @@ end
 o.bind("SUPER + CTRL + SHIFT + F", "Fake full screen", hl.dsp.window.fullscreen_state({ internal = 0, client = 2 }))
 
 
+-- Mark the moment the cursor froze (temporary, 2026-09-24).
+--
+-- A keyboard binding on purpose: when the cursor stops moving, reaching for a
+-- terminal with the mouse is exactly what you cannot do. The watcher samples
+-- once a minute; this drops a timestamp and takes a sample right then, so the
+-- counters either side bracket the event. Remove with the timer.
+o.bind("SUPER + ALT + M", "Mark cursor freeze", { launch = "/home/kevin/.local/bin/cursor-freeze-watch mark" })
+
 -- flea --default: begin. Written by `flea --default`; `flea --default off` removes the block whole.
 hl.unbind("SUPER + SHIFT + F")
 o.bind("SUPER + SHIFT + F", "File manager", { launch = 'flea --gui' })

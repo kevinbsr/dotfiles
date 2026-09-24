@@ -1,0 +1,200 @@
+#!/bin/bash
+# Record what the compositor is doing to the cursor, once a minute.
+#
+# WHY THIS EXISTS: the cursor stutters and freezes while being moved, in bursts
+# nobody has managed to trigger on demand. The compositor log shows the
+# mechanism -- a cross-GPU cursor blit that always fails, retried on every
+# cursor update -- and libinput's "event processing lagging behind" warnings sit
+# inside those bursts, up to 452 ms. On 2026-09-24 `cursor:use_cpu_buffer` was
+# forced on to remove that blit. This samples the counters so the next time the
+# cursor freezes there is a record of whether the blit came back, and of what
+# else changed at that minute, instead of a memory of roughly when it happened.
+#
+# Commands:
+#   cursor-freeze-watch sample        one record (what the timer runs)
+#   cursor-freeze-watch mark [note]   "it just froze" -- run this when it does
+#   cursor-freeze-watch report [N]    the last N hours, default 24
+#
+# Records go to ~/.local/state/cursor-freeze-watch/samples.jsonl, one JSON
+# object per line. Counters are cumulative per compositor session, so what
+# matters is the delta between samples; a session change resets them and is
+# recorded as session_changed.
+set -uo pipefail
+
+STATE="${XDG_STATE_HOME:-$HOME/.local/state}/cursor-freeze-watch"
+SAMPLES="$STATE/samples.jsonl"
+LAST="$STATE/last.json"
+RUNTIME="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+MAX_BYTES=$((8 * 1024 * 1024))
+
+mkdir -p "$STATE" || exit 1
+
+# The newest live log. Its directory name is the instance signature, which is
+# also what hyprctl needs -- so nothing here depends on being run from inside
+# the session's environment (a systemd timer is not).
+newest_log() {
+  ls -t "$RUNTIME"/hypr/*/hyprland.log 2>/dev/null | head -1
+}
+
+json_escape() { python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().strip()))'; }
+
+sample() {
+  local log sig ts blit lag worst monitors cpu_buffer no_hw dgpu load psi_cpu psi_io hypr_cpu
+  ts=$(date -Is)
+  log=$(newest_log)
+
+  if [[ -z $log ]]; then
+    printf '{"ts":"%s","note":"no live compositor log"}\n' "$ts" >>"$SAMPLES"
+    return 0
+  fi
+
+  sig=$(basename "$(dirname "$log")")
+  export HYPRLAND_INSTANCE_SIGNATURE="$sig"
+
+  blit=$(grep -c "cursor blit failed" "$log" 2>/dev/null || echo 0)
+  lag=$(grep -c "lagging behind" "$log" 2>/dev/null || echo 0)
+  # Worst lag this session, so a jump in it says how bad the new burst was.
+  worst=$(grep -o "lagging behind by [0-9]*ms" "$log" 2>/dev/null | grep -o '[0-9]*' | sort -rn | head -1)
+  worst=${worst:-0}
+
+  cpu_buffer=$(hyprctl getoption cursor:use_cpu_buffer -j 2>/dev/null | python3 -c 'import json,sys;print(json.load(sys.stdin).get("int",-1))' 2>/dev/null || echo -1)
+  no_hw=$(hyprctl getoption cursor:no_hardware_cursors -j 2>/dev/null | python3 -c 'import json,sys;print(json.load(sys.stdin).get("int",-1))' 2>/dev/null || echo -1)
+  monitors=$(hyprctl monitors -j 2>/dev/null | python3 -c '
+import json,sys
+try:
+    ms = json.load(sys.stdin)
+except Exception:
+    print("[]"); raise SystemExit
+print(json.dumps([{"name": m["name"], "hz": round(m["refreshRate"], 2), "dpms": m.get("dpmsStatus")} for m in ms]))
+' 2>/dev/null || echo '[]')
+
+  dgpu=$(cat /sys/bus/pci/devices/0000:01:00.0/power/runtime_status 2>/dev/null || echo unknown)
+  load=$(awk '{print $1}' /proc/loadavg)
+  psi_cpu=$(awk '/^some/{for(i=1;i<=NF;i++) if($i ~ /^avg10=/){sub("avg10=","",$i); print $i}}' /proc/pressure/cpu 2>/dev/null)
+  psi_io=$(awk '/^some/{for(i=1;i<=NF;i++) if($i ~ /^avg10=/){sub("avg10=","",$i); print $i}}' /proc/pressure/io 2>/dev/null)
+
+  # Compositor CPU time, so a burst that costs real work shows up as a jump.
+  local hpid
+  hpid=$(pgrep -x Hyprland | head -1)
+  if [[ -n $hpid ]]; then
+    hypr_cpu=$(awk '{print $14 + $15}' "/proc/$hpid/stat" 2>/dev/null)
+  fi
+  hypr_cpu=${hypr_cpu:-0}
+
+  # Deltas against the previous sample; a new session resets the counters.
+  local p_sig="" p_blit=0 p_lag=0 p_cpu=0 session_changed=false
+  if [[ -f $LAST ]]; then
+    read -r p_sig p_blit p_lag p_cpu < <(python3 -c '
+import json,sys
+try:
+    d = json.load(open(sys.argv[1]))
+except Exception:
+    d = {}
+print(d.get("sig",""), d.get("blit",0), d.get("lag",0), d.get("hypr_cpu",0))
+' "$LAST" 2>/dev/null)
+  fi
+  # A new session (or the first run) starts counting from what is already
+  # there. Charging a fresh session's existing 6000 failures to the minute the
+  # watch happened to start would be a burst that never happened.
+  if [[ $p_sig != "$sig" ]]; then
+    session_changed=true
+    p_blit=$blit; p_lag=$lag; p_cpu=$hypr_cpu
+  fi
+  local d_blit=$(( blit - p_blit )) d_lag=$(( lag - p_lag )) d_cpu=$(( hypr_cpu - p_cpu ))
+  (( d_blit < 0 )) && d_blit=0
+  (( d_lag < 0 )) && d_lag=0
+  (( d_cpu < 0 )) && d_cpu=0
+
+  printf '{"ts":"%s","sig":"%s","session_changed":%s,"blit":%d,"blit_delta":%d,"lag":%d,"lag_delta":%d,"worst_lag_ms":%d,"hypr_cpu":%d,"hypr_cpu_delta":%d,"use_cpu_buffer":%s,"no_hardware_cursors":%s,"dgpu":"%s","load1":%s,"psi_cpu10":%s,"psi_io10":%s,"monitors":%s}\n' \
+    "$ts" "$sig" "$session_changed" "$blit" "$d_blit" "$lag" "$d_lag" "$worst" "$hypr_cpu" "$d_cpu" \
+    "${cpu_buffer:--1}" "${no_hw:--1}" "$dgpu" "${load:-0}" "${psi_cpu:-0}" "${psi_io:-0}" "$monitors" >>"$SAMPLES"
+
+  printf '{"sig":"%s","blit":%d,"lag":%d,"hypr_cpu":%d}\n' "$sig" "$blit" "$lag" "$hypr_cpu" >"$LAST"
+
+  # Keep the file bounded: drop the oldest half rather than everything, so a
+  # long-running watch never loses the last day to a rotation.
+  local size
+  size=$(stat -c %s "$SAMPLES" 2>/dev/null || echo 0)
+  if (( size > MAX_BYTES )); then
+    tail -n $(( $(wc -l <"$SAMPLES") / 2 )) "$SAMPLES" >"$SAMPLES.new" && mv "$SAMPLES.new" "$SAMPLES"
+  fi
+}
+
+mark() {
+  local note ts
+  note=${*:-"cursor froze"}
+  ts=$(date -Is)
+  printf '{"ts":"%s","mark":%s}\n' "$ts" "$(printf '%s' "$note" | json_escape)" >>"$SAMPLES"
+  # A mark is worth a sample of its own, taken right now rather than up to a
+  # minute later, so the counters either side of it bracket the event tightly.
+  sample
+  echo "marked at $ts"
+}
+
+report() {
+  local hours=${1:-24}
+  python3 - "$SAMPLES" "$hours" <<'PY'
+import json, sys, datetime
+
+path, hours = sys.argv[1], float(sys.argv[2])
+cutoff = datetime.datetime.now().astimezone() - datetime.timedelta(hours=hours)
+
+rows = []
+for line in open(path):
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        r = json.loads(line)
+    except Exception:
+        continue
+    try:
+        if datetime.datetime.fromisoformat(r["ts"]) >= cutoff:
+            rows.append(r)
+    except Exception:
+        pass
+
+if not rows:
+    print("no samples in that window")
+    raise SystemExit
+
+samples = [r for r in rows if "blit" in r]
+marks = [r for r in rows if "mark" in r]
+bursts = [r for r in samples if r.get("blit_delta", 0) > 0 or r.get("lag_delta", 0) > 0]
+
+print(f"window: last {hours:g} h   samples: {len(samples)}   marks: {len(marks)}")
+if samples:
+    first, last = samples[0], samples[-1]
+    print(f"blit failures: {first['blit']} -> {last['blit']}   "
+          f"input lag warnings: {first['lag']} -> {last['lag']}   "
+          f"worst lag this session: {last['worst_lag_ms']} ms")
+    print(f"cursor settings now: use_cpu_buffer={last['use_cpu_buffer']} "
+          f"no_hardware_cursors={last['no_hardware_cursors']}")
+
+if bursts:
+    print(f"\nminutes with new failures ({len(bursts)}):")
+    for r in bursts[-25:]:
+        print(f"  {r['ts'][11:19]}  +{r.get('blit_delta',0):5d} blit  "
+              f"+{r.get('lag_delta',0):3d} lag  worst={r['worst_lag_ms']}ms  "
+              f"hypr_cpu+={r.get('hypr_cpu_delta',0)} ticks  dgpu={r.get('dgpu')}")
+else:
+    print("\nno new blit failures or input lag warnings in this window")
+
+if marks:
+    print("\nmarks:")
+    for m in marks:
+        near = [r for r in samples if abs((datetime.datetime.fromisoformat(r["ts"])
+                - datetime.datetime.fromisoformat(m["ts"])).total_seconds()) <= 120]
+        blit = sum(r.get("blit_delta", 0) for r in near)
+        lag = sum(r.get("lag_delta", 0) for r in near)
+        print(f"  {m['ts'][11:19]}  {m['mark']}")
+        print(f"      within ±2 min: +{blit} blit failures, +{lag} input lag warnings")
+PY
+}
+
+case "${1:-sample}" in
+  sample) sample ;;
+  mark) shift; mark "$@" ;;
+  report) shift; report "${1:-24}" ;;
+  *) echo "usage: cursor-freeze-watch [sample|mark [note]|report [hours]]" >&2; exit 2 ;;
+esac

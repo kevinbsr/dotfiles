@@ -1,0 +1,9 @@
+[Unit]
+Description=Sample the compositor's cursor-blit and input-lag counters
+Documentation=file:%h/.local/bin/cursor-freeze-watch
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/cursor-freeze-watch sample
+Nice=10
+IOSchedulingClass=idle

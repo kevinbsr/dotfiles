@@ -1,0 +1,13 @@
+[Unit]
+Description=Sample cursor-freeze counters every minute
+# Temporary: added 2026-09-24 to catch the cursor freezing in the act. Remove
+# with `systemctl --user disable --now cursor-freeze-watch.timer` once the
+# question is settled.
+
+[Timer]
+OnCalendar=*:*:00
+AccuracySec=5s
+Persistent=false
+
+[Install]
+WantedBy=timers.target
