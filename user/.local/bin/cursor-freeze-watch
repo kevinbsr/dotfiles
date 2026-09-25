@@ -51,8 +51,8 @@ sample() {
   sig=$(basename "$(dirname "$log")")
   export HYPRLAND_INSTANCE_SIGNATURE="$sig"
 
-  blit=$(grep -c "cursor blit failed" "$log" 2>/dev/null || echo 0)
-  lag=$(grep -c "lagging behind" "$log" 2>/dev/null || echo 0)
+  blit=$(grep -c "cursor blit failed" "$log" 2>/dev/null); blit=${blit:-0}
+  lag=$(grep -c "lagging behind" "$log" 2>/dev/null); lag=${lag:-0}
   # Worst lag this session, so a jump in it says how bad the new burst was.
   worst=$(grep -o "lagging behind by [0-9]*ms" "$log" 2>/dev/null | grep -o '[0-9]*' | sort -rn | head -1)
   worst=${worst:-0}
@@ -122,6 +122,42 @@ print(d.get("sig",""), d.get("blit",0), d.get("lag",0), d.get("hypr_cpu",0), d.g
     "${cpu_buffer:--1}" "${no_hw:--1}" "$dgpu" "${load:-0}" "${psi_cpu:-0}" "${psi_io:-0}" "$forks" "$d_forks" "$ctxt" "$d_ctxt" "$monitors" >>"$SAMPLES"
 
   printf '{"sig":"%s","blit":%d,"lag":%d,"hypr_cpu":%d,"forks":%d,"ctxt":%d}\n' "$sig" "$blit" "$lag" "$hypr_cpu" "$forks" "$ctxt" >"$LAST"
+
+  # A storm, caught in the act. 4000 process creations in a minute is 67/s,
+  # against a quiet baseline measured here between 5/s and 27/s -- and on
+  # 2026-09-24 the cursor was at its worst at 84/s. Only then does this spend two seconds
+  # looking at who is spawning what, so the question "what was that" has an
+  # answer the next morning instead of a shrug. Nothing polls while the machine
+  # is quiet.
+  if (( d_forks > 4000 )); then
+    python3 - "$STATE/storms.jsonl" <<'SPY' &
+import collections, json, pathlib, sys, time
+seen = {int(p.name) for p in pathlib.Path("/proc").iterdir() if p.name.isdigit()}
+pairs, samples = collections.Counter(), {}
+end = time.time() + 2
+while time.time() < end:
+    for p in pathlib.Path("/proc").iterdir():
+        if not p.name.isdigit() or int(p.name) in seen:
+            continue
+        seen.add(int(p.name))
+        try:
+            comm = (p / "comm").read_text().strip()
+            ppid = int((p / "stat").read_text().rsplit(") ", 1)[1].split()[1])
+            pcomm = pathlib.Path(f"/proc/{ppid}/comm").read_text().strip()
+            key = f"{pcomm} -> {comm}"
+            pairs[key] += 1
+            if key not in samples:
+                samples[key] = (p / "cmdline").read_text().replace("\0", " ").strip()[:120]
+        except Exception:
+            pass
+    time.sleep(0.005)
+with open(sys.argv[1], "a") as fh:
+    fh.write(json.dumps({
+        "ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "top": [{"pair": k, "n": n, "cmd": samples.get(k, "")} for k, n in pairs.most_common(6)],
+    }) + "\n")
+SPY
+  fi
 
   # Keep the file bounded: drop the oldest half rather than everything, so a
   # long-running watch never loses the last day to a rotation.
