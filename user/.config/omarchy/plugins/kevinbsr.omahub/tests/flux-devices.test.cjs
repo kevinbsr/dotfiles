@@ -151,22 +151,6 @@ test('a link goes to the browser, anything else arrives as text', () => {
   assert.deepEqual(model.textParams({ id: 'abc' }, 'oi'), { device: 'abc', text: 'oi' });
 });
 
-test('media only counts when the phone reports something to show', () => {
-  assert.equal(model.media(null), null);
-  assert.equal(model.media({}), null);
-  assert.equal(model.media({ media: {} }), null);
-  assert.equal(model.media({ media: { title: '', artist: '' } }), null);
-  assert.deepEqual(model.media({ media: { title: 'Song', artist: 'Band', playing: true } }),
-    { title: 'Song', artist: 'Band', playing: true, raw: { title: 'Song', artist: 'Band', playing: true } });
-  // Album stands in when there is no artist, and playing defaults to true so a
-  // player that does not say leaves the pause button showing, not the play one.
-  assert.equal(model.media({ media: { title: 'X', album: 'Y' } }).artist, 'Y');
-  assert.equal(model.media({ media: { title: 'X' } }).playing, true);
-  assert.equal(model.media({ media: { title: 'X', playing: false } }).playing, false);
-});
-
-test('media and unpair carry the device and the action', () => {
-  assert.deepEqual(model.mediaParams({ id: 'abc' }, 'Next'), { device: 'abc', action: 'Next' });
-  assert.deepEqual(model.mediaParams({ id: 'abc' }), { device: 'abc', action: 'PlayPause' });
+test('unpair carries the device', () => {
   assert.deepEqual(model.unpairParams({ id: 'abc' }), { device: 'abc' });
 });

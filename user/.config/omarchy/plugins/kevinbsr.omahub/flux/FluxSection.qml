@@ -141,20 +141,18 @@ Column {
 
   // Omarchy's own chooser, which is what Flux's picker runs too. Sending is a
   // separate step from choosing, so a cancelled dialog sends nothing.
-  // The phone's own playback, when it has any. This is not the Media page:
-  // that one drives this computer's players over MPRIS, and these buttons
-  // reach the phone's session through Flux.
-  readonly property var phoneMedia: live ? FluxModel.media(activeDevice) : null
+  // No transport for the phone's own playback, and not for lack of trying:
+  // Flux's media flow is one-directional by design. docs/features.md is
+  // explicit -- "The phone controls the media players on the desktop" and
+  // "The desktop does not show or control the players on the phone" -- which
+  // is why the phone advertises no `mpris` plugin and device.media stays null.
+  // A transport bar here could never light up. Read the docs before building
+  // the screen next time.
   readonly property bool ringing: !!backend && !!backend.ringing
 
   // Unpairing is the one action here that throws something away, so it asks
   // first -- the same two-step the KDE Connect page uses for the same reason.
   property string unpairConfirmingId: ""
-
-  function mediaAction(action) {
-    if (!live || !activeDevice) return
-    backend.call("media.action", FluxModel.mediaParams(activeDevice, action), function () {})
-  }
 
   function stopRinging() {
     if (live) backend.call("ring.stop", {}, function () {})
@@ -500,66 +498,6 @@ Column {
           foreground: root.foreground; fontFamily: root.fontFamily
           onClicked: root.act("pair.request", ["pair", row.modelData.name], row.modelData)
         }
-      }
-    }
-  }
-
-  // What the phone is playing, and the three controls worth reaching without
-  // picking the phone up. Hidden entirely when nothing is playing: an empty
-  // transport bar is furniture.
-  Item {
-    visible: !!root.phoneMedia
-    width: parent.width
-    height: mediaText.implicitHeight + Style.spacing.sm
-
-    Column {
-      id: mediaText
-      anchors.left: parent.left
-      anchors.right: mediaButtons.left
-      anchors.rightMargin: Style.spacing.xs
-      anchors.verticalCenter: parent.verticalCenter
-      Text {
-        textFormat: Text.PlainText
-        width: parent.width
-        text: root.phoneMedia ? root.phoneMedia.title : ""
-        color: root.foreground
-        elide: Text.ElideRight
-        font.family: root.fontFamily; font.pixelSize: Style.font.bodySmall; font.weight: Font.Medium
-      }
-      Text {
-        textFormat: Text.PlainText
-        visible: text !== ""
-        width: parent.width
-        text: root.phoneMedia ? root.phoneMedia.artist : ""
-        color: root.dim
-        elide: Text.ElideRight
-        font.family: root.fontFamily; font.pixelSize: Style.font.caption
-      }
-    }
-
-    Row {
-      id: mediaButtons
-      anchors.right: parent.right
-      anchors.verticalCenter: parent.verticalCenter
-      spacing: Style.spacing.xs
-
-      PanelActionButton {
-        foreground: root.foreground; fontFamily: root.fontFamily
-        iconText: "󰒮"
-        tooltipText: "Previous on the phone"
-        onClicked: root.mediaAction("Previous")
-      }
-      PanelActionButton {
-        foreground: root.foreground; fontFamily: root.fontFamily
-        iconText: root.phoneMedia && root.phoneMedia.playing ? "󰏤" : "󰐊"
-        tooltipText: root.phoneMedia && root.phoneMedia.playing ? "Pause the phone" : "Play on the phone"
-        onClicked: root.mediaAction("PlayPause")
-      }
-      PanelActionButton {
-        foreground: root.foreground; fontFamily: root.fontFamily
-        iconText: "󰒭"
-        tooltipText: "Next on the phone"
-        onClicked: root.mediaAction("Next")
       }
     }
   }
