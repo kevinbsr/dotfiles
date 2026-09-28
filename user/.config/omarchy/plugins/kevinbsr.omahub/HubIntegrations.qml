@@ -119,6 +119,29 @@ Item {
   ManifestServicePath { id: phoneManifest; pluginId: "omaconnect"; vendoredPath: "vendor/omaconnect/Service.qml" }
   ManifestServicePath { id: nearbyManifest; pluginId: "oma.nearby" }
   ManifestServicePath { id: mirrorManifest; pluginId: "io.github.ayan-de.android-mirror"; vendoredPath: "vendor/android-mirror/MirrorBackend.qml" }
+  ManifestServicePath { id: fluxManifest; pluginId: "flux" }
+
+  // Flux's own backend, loaded from the copy the user installed -- not from a
+  // copy of ours. Flux's repository carries no license yet, so nothing of it
+  // is vendored here; this reaches into the installed plugin the same way the
+  // other integrations reach into theirs, and only when it is actually there.
+  //
+  // Backend.qml rather than Service.qml on purpose: Service adds a theme
+  // watcher and a 5 s reload timer that Flux's own service is already running.
+  // The backend alone is the socket to fluxd, which is the part worth having.
+  //
+  // It lives here, in the single Hub service, and not in the page: there is
+  // one Panel per monitor, and a socket per monitor is exactly the mistake
+  // this file exists to avoid.
+  readonly property var flux: fluxLoader.item
+  readonly property bool fluxPresent: fluxManifest.present
+  readonly property bool fluxFailed: fluxLoader.active && fluxLoader.status === Loader.Error
+
+  Loader {
+    id: fluxLoader
+    active: fluxManifest.present
+    source: active ? Qt.resolvedUrl("../flux/Backend.qml") : ""
+  }
 
   // Whether each engine is enabled and its Loader landed on Error rather than
   // Ready -- a bad source URL or a QML error in the file it names, which is

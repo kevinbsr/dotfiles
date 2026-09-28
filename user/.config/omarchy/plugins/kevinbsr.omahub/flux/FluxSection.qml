@@ -9,14 +9,22 @@ import "FluxModel.js" as FluxModel
 // Connect. Same job as the KDE Connect view beside it: the devices, their
 // battery, and the few actions worth reaching without opening another window.
 //
-// WHY THE CLI AND NOT THE PLUGIN: Flux ships its own omarchy-shell plugin with
-// a Backend.qml that speaks JSON-RPC to fluxd over a socket. The Hub does not
-// load or copy it. Flux's repository carries no license yet -- its own Arch
-// package records `license=('LicenseRef-unknown')` -- so redistributing its
-// source inside this plugin is not something to do on a hunch. `flux` the
-// command is a documented, stable surface (`flux --help`), it is what any
-// third party is meant to drive, and reading it costs one process every few
-// seconds while this page is on screen.
+// TWO WAYS IN, in this order:
+//
+//   1. Flux's own Backend.qml, loaded by HubIntegrations from the plugin the
+//      user installed. It holds the socket to fluxd and pushes state, so the
+//      page is live: a phone that unplugs updates the moment fluxd says so.
+//   2. The `flux` command, polled every five seconds while this page is on
+//      screen. This is what answers when the shell plugin is not installed --
+//      the CLI ships with the package either way.
+//
+// Nothing of Flux is copied into this repository. Its backend is *loaded from
+// the user's own installation*, never vendored: Flux carries no license yet
+// (its Arch package records `license=('LicenseRef-unknown')`), and shipping
+// someone's unlicensed source inside a plugin published on the marketplace is
+// not a thing to do while waiting for them to pick one. Loading what is
+// already on the machine raises no such question, and is how the Hub reaches
+// every other installed engine.
 //
 // Nothing here runs unless Flux is installed: `available` gates the whole
 // section, and the tab falls back to KDE Connect, which is untouched.
@@ -32,18 +40,42 @@ Column {
   // contract the rest of the Hub follows.
   property bool active: false
 
-  property var devices: []
+  // Flux's own backend when it is installed; null otherwise.
+  readonly property var backend: hub && hub.hubService && hub.hubService.integrations
+    ? hub.hubService.integrations.flux : null
+  readonly property bool live: !!backend && !!backend.connected
+
+  // Live state when the backend is there, polled state when it is not.
+  readonly property var devices: live ? FluxModel.devices({ devices: backend.devices }) : polledDevices
+
+  property var polledDevices: []
   property bool ready: false
   // Whether Flux is on this machine at all. One probe decides it: `flux
   // status` either answers or the command is not there, and the tab shows the
   // KDE Connect setup instead. Checked once at load, not polled -- a plugin
   // appearing mid-session is not worth a timer.
   property bool available: false
+  onBackendChanged: if (backend) available = true
   property string errorText: ""
   readonly property var pairing: FluxModel.pendingPairing(devices)
 
   function refresh() {
+    // The backend pushes; only the CLI path has anything to poll.
+    if (live) return
     if (!statusProc.running) statusProc.running = true
+  }
+
+  // One call, whichever way in is available. The RPC method names and their
+  // one parameter are Flux's own (`ring`, `clipboard.send`, `pair.request`,
+  // `pair.accept`, `pair.reject`, all taking { device: <id> }); the CLI verbs
+  // take the device *name* instead, which is why both forms are passed in.
+  function act(method, cliArgs, device) {
+    if (live) {
+      backend.call(method, { device: device.id }, function () {})
+      return
+    }
+    actionProc.command = ["flux"].concat(cliArgs)
+    actionProc.running = true
   }
 
   function run(args) {
@@ -53,7 +85,12 @@ Column {
 
   onActiveChanged: {
     if (active) refresh()
-    poll.running = active && available
+    poll.running = active && available && !live
+  }
+  // Losing the socket falls back to polling rather than to an empty page.
+  onLiveChanged: {
+    poll.running = active && available && !live
+    if (!live) refresh()
   }
 
   // The probe runs whether or not the page is on screen: the tab needs the
@@ -67,7 +104,7 @@ Column {
       waitForEnd: true
       onStreamFinished: {
         try {
-          root.devices = FluxModel.devices(JSON.parse(String(text || "")))
+          root.polledDevices = FluxModel.devices(JSON.parse(String(text || "")))
           root.errorText = ""
           root.available = true
         } catch (error) {
@@ -83,7 +120,7 @@ Column {
         if (code === 127) root.available = false
         // fluxd not running is the ordinary case here, not an error worth a
         // red line: the tab simply offers to start it.
-        root.devices = []
+        root.polledDevices = []
         root.ready = true
       }
     }
@@ -168,13 +205,13 @@ Column {
           text: "Accept"
           bordered: true
           foreground: root.foreground; fontFamily: root.fontFamily
-          onClicked: if (root.pairing) root.run(["accept", root.pairing.name])
+          onClicked: if (root.pairing) root.act("pair.accept", ["accept", root.pairing.name], root.pairing)
         }
         Button {
           text: "Reject"
           bordered: true
           foreground: root.foreground; fontFamily: root.fontFamily
-          onClicked: if (root.pairing) root.run(["reject", root.pairing.name])
+          onClicked: if (root.pairing) root.act("pair.reject", ["reject", root.pairing.name], root.pairing)
         }
       }
     }
@@ -224,21 +261,21 @@ Column {
           foreground: root.foreground; fontFamily: root.fontFamily
           iconText: "󰂚"
           tooltipText: "Ring the phone"
-          onClicked: root.run(["ring", "--device", row.modelData.name])
+          onClicked: root.act("ring", ["ring", "--device", row.modelData.name], row.modelData)
         }
         PanelActionButton {
           visible: FluxModel.usable(row.modelData)
           foreground: root.foreground; fontFamily: root.fontFamily
           iconText: "󰅇"
           tooltipText: "Send this computer's clipboard"
-          onClicked: root.run(["clip", "--device", row.modelData.name])
+          onClicked: root.act("clipboard.send", ["clip", "--device", row.modelData.name], row.modelData)
         }
         Button {
           visible: !row.modelData.paired
           text: "Pair"
           bordered: true
           foreground: root.foreground; fontFamily: root.fontFamily
-          onClicked: root.run(["pair", row.modelData.name])
+          onClicked: root.act("pair.request", ["pair", row.modelData.name], row.modelData)
         }
       }
     }

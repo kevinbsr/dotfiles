@@ -227,16 +227,31 @@ nothing else is hosting it, and the page still offers a one-click switch back
 to KDE Connect. Neither replaces the other — removing KDE Connect was never
 the point of adding Flux.
 
-Flux is driven through its `flux` command, not through its shell plugin, and
-the difference is deliberate. Flux ships a `Backend.qml` that speaks JSON-RPC
-to `fluxd` over a socket, but its repository carries no license yet — its own
-Arch package records `license=('LicenseRef-unknown')` — so its source is not
-copied or loaded here. `flux --help` is a documented surface meant for other
-programs, and reading it costs one short-lived process every five seconds while
-the page is on screen and nothing at all when it is not. `flux/FluxModel.js`
-parses `flux status --json` defensively: every field is optional, because it is
-another project's output and a missing key must make a quieter row rather than
-throw inside a delegate.
+The Flux page has two ways in, and prefers the first. When Flux's own shell
+plugin is installed, `HubIntegrations.qml` loads **its** `Backend.qml` from the
+user's installation and reads state straight off the socket to `fluxd`: the
+page is live, a phone that unplugs updates when fluxd says so, and nothing is
+polled. When that plugin is not there, the page falls back to the `flux`
+command every five seconds while it is on screen — the CLI ships with the
+package either way. Losing the socket falls back too, rather than emptying the
+page.
+
+Nothing of Flux is vendored. Its backend is *loaded from the machine it is
+already installed on*, which is how the Hub reaches every other installed
+engine, and is a different act from shipping a copy: Flux carries no license
+yet — its Arch package records `license=('LicenseRef-unknown')` — and this
+plugin is published on the marketplace. When Flux picks a license, vendoring it
+becomes an option worth revisiting; until then, loading beats copying.
+
+`Backend.qml` and not `Service.qml`, because Service adds a theme watcher and a
+5-second reload timer that Flux's own service is already running; the backend
+alone is the socket. It is loaded in the Hub's single service object rather
+than in the page, since there is one Panel per monitor and a socket per monitor
+is the mistake `HubIntegrations.qml` exists to prevent.
+
+`flux/FluxModel.js` parses what either path returns, and treats every field as
+optional: it is another project's output, and a missing key must make a quieter
+row rather than throw inside a delegate.
 
 The four Phone sections under `kdeconnect/` remain vendored; see
 `kdeconnect/VENDORED.md`. `NearbyTab.qml` keeps the file chooser and clipboard
