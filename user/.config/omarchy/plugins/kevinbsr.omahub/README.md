@@ -16,7 +16,7 @@ character while bringing related controls into one consistent surface.
 - MPRIS and PipeWire media controls with per-source volume and window focus.
 - Open-Meteo weather with rain, UV, sunrise, sunset and a three-day forecast.
 - Screen-time history, comparison, weekly trend and app breakdown.
-- KDE Connect phone actions and LocalSend-compatible nearby sharing.
+- Phone actions through KDE Connect or Flux, and LocalSend-compatible nearby sharing.
 - Android device mirroring (adb/scrcpy) inline on the Phone page.
 - Sleep-aware CPU, memory, GPU and storage monitoring with a btop shortcut.
 - Mouse and keyboard navigation across all seven pages.
@@ -32,7 +32,7 @@ Screen Time, Phone, Nearby and Android Mirror are optional integrations, off
 until you turn them on. Three of them (Screen Time, Phone, Android Mirror) run
 on engines the Hub carries itself, so their tabs only ask for the system
 packages they drive — `kdeconnect` for Phone, `adb` and `scrcpy` for Android
-Mirror. Nearby needs its own plugin installed; its tab says so and links the
+Mirror. The Phone page also works with Flux when it is installed, and says so. Nearby needs its own plugin installed; its tab says so and links the
 command. Every tab names what is missing before offering to turn anything on.
 
 ## Install
@@ -97,6 +97,7 @@ WeatherSource.qml  weather data  (was omarchy.weather's Panel.qml, model half)
 ScreenTimeTab.qml  screen time   (was agx.screen-time's Panel.qml)
 KdeConnectTab.qml  phone         (omaconnect's Panel.qml state machine)
 kdeconnect/        omaconnect's four sections, vendored — see VENDORED.md
+flux/              the Phone page's other backend, driven through the flux CLI
 NearbyTab.qml      nearby page   (oma.nearby's Panel.qml, view half)
 NearbyModel.js     transfer formatting, from oma.nearby
 SystemTab.qml      system page   (CPU, memory, GPU and storage)
@@ -218,6 +219,24 @@ available whether or not the plugin directory exists. Re-enabling a standalone
 plugin makes the Hub relinquish its engine; do not enable both copies when
 configuring the desktop manually. The helper backs up shell.json, preserves
 unrelated entries and writes it atomically. Repeated activation is idempotent.
+
+The Phone page has two backends and picks one at load. KDE Connect wins
+whenever its engine is loaded, because that is a choice someone made in the
+Hub's settings; **Flux** (github.com/bjarneo/flux) takes the page only when
+nothing else is hosting it, and the page still offers a one-click switch back
+to KDE Connect. Neither replaces the other — removing KDE Connect was never
+the point of adding Flux.
+
+Flux is driven through its `flux` command, not through its shell plugin, and
+the difference is deliberate. Flux ships a `Backend.qml` that speaks JSON-RPC
+to `fluxd` over a socket, but its repository carries no license yet — its own
+Arch package records `license=('LicenseRef-unknown')` — so its source is not
+copied or loaded here. `flux --help` is a documented surface meant for other
+programs, and reading it costs one short-lived process every five seconds while
+the page is on screen and nothing at all when it is not. `flux/FluxModel.js`
+parses `flux status --json` defensively: every field is optional, because it is
+another project's output and a missing key must make a quieter row rather than
+throw inside a delegate.
 
 The four Phone sections under `kdeconnect/` remain vendored; see
 `kdeconnect/VENDORED.md`. `NearbyTab.qml` keeps the file chooser and clipboard

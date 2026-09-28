@@ -3,6 +3,7 @@ import qs.Commons
 import qs.Ui
 import "kdeconnect"
 import "android-mirror"
+import "flux"
 
 // KDE Connect page of the hub: devices, pairing, the action toolbar, the
 // ping/share composers, and remote commands -- with Android Mirror's device
@@ -33,6 +34,12 @@ Item {
   readonly property var service: hub && hub.hubService && hub.hubService.integrations
     ? hub.hubService.integrations.phone
     : null
+  // Which phone stack draws this page. KDE Connect wins when its engine is
+  // loaded, because that is a deliberate choice the person made in the Hub's
+  // settings; Flux takes the page only when nothing is hosting it. Both stay
+  // supported -- removing KDE Connect was never the point of adding Flux.
+  readonly property bool fluxHosting: !service && fluxSection.available
+
   readonly property var device: service ? service.selectedDevice : null
   readonly property string deviceName: device && typeof device.name === "string" ? device.name : "KDE Connect"
   readonly property string deviceId: device ? String(device.id || "") : ""
@@ -89,6 +96,9 @@ Item {
   }
 
   implicitHeight: contentColumn.implicitHeight
+
+  function tabShown() { fluxSection.active = true }
+  function tabHidden() { fluxSection.active = false }
 
   // ---- Tab contract: the composers take the keyboard whole while open.
   readonly property bool keysBlocked: root.activeComposer !== "none"
@@ -512,8 +522,41 @@ Item {
     width: parent.width
     spacing: Style.space(12)
 
+    // Flux draws the page when it is here and KDE Connect is not hosting.
+    FluxSection {
+      id: fluxSection
+      visible: root.fluxHosting
+      width: parent.width
+      hub: root.hub
+      foreground: root.foreground
+      fontFamily: root.fontFamily
+    }
+
+    // Kept reachable while Flux hosts the page: someone running both should be
+    // able to switch back without editing shell.json by hand.
+    Text {
+      textFormat: Text.PlainText
+      visible: root.fluxHosting && !fluxKdeSetup.configuredEnabled
+      width: parent.width
+      text: "Prefer KDE Connect? Enable it below and it takes this page instead."
+      wrapMode: Text.WordWrap
+      color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.55)
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.caption
+    }
+
+    IntegrationSetup {
+      id: fluxKdeSetup
+      visible: root.fluxHosting
+      width: parent.width
+      pluginId: "omaconnect"
+      actionText: "Use KDE Connect instead"
+      foreground: root.foreground
+      fontFamily: root.fontFamily
+    }
+
     Column {
-      visible: !root.service
+      visible: !root.service && !root.fluxHosting
       width: parent.width
       spacing: Style.space(16)
       Text {
@@ -526,7 +569,7 @@ Item {
       Text {
         textFormat: Text.PlainText
         width: parent.width
-        text: phoneSetup.configuredEnabled ? "Loading your devices…" : "Enable phone integration, then open KDE Connect on your phone. Keep both devices on the same network to pair them."
+        text: phoneSetup.configuredEnabled ? "Loading your devices…" : "Enable phone integration, then open KDE Connect on your phone. Keep both devices on the same network to pair them. Flux works here too, when it is installed."
         wrapMode: Text.WordWrap
         color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.7)
         font.family: root.fontFamily
