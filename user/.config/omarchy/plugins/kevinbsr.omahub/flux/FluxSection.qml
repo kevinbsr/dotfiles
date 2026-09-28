@@ -45,6 +45,45 @@ Column {
     ? hub.hubService.integrations.flux : null
   readonly property bool live: !!backend && !!backend.connected
 
+  // The phone this page is about: the first paired, reachable one. Flux can
+  // hold several, but the notifications and the clipboard belong to whichever
+  // is actually connected, and a picker for a list of one would be furniture.
+  readonly property var activeDevice: {
+    for (var i = 0; i < devices.length; i++)
+      if (FluxModel.usable(devices[i])) return devices[i]
+    return null
+  }
+  // Both of these come from the pushed state, so they exist on the backend
+  // path only. The CLI fallback keeps devices and actions; parsing the text of
+  // `flux notifications` to rebuild this would be a second, worse reader.
+  readonly property var notifications: live ? FluxModel.notifications(activeDevice, 6) : []
+  readonly property int notificationTotal: live ? FluxModel.notificationCount(activeDevice) : 0
+  readonly property var clips: live ? FluxModel.clipboard({ clipboard: backend.clipboard }, 3) : []
+
+  // One clock for every "2m" on the page, ticking a minute at a time while it
+  // is open. Per-row timers would be dozens of them for a number that changes
+  // once a minute.
+  property int nowSeconds: Math.floor(Date.now() / 1000)
+  Timer {
+    interval: 60000
+    repeat: true
+    running: root.active
+    onTriggered: root.nowSeconds = Math.floor(Date.now() / 1000)
+  }
+
+  function dismiss(entry) {
+    if (!live || !activeDevice || !entry) return
+    backend.call("notification.dismiss", { device: activeDevice.id, id: entry.id }, function () {})
+  }
+
+  // Copying back into this machine's clipboard is a local act; Flux has no
+  // method for it, and wl-copy is what the rest of the Hub uses.
+  function copyLocally(entry) {
+    if (!entry || !entry.text) return
+    copyProc.command = ["wl-copy", "--", String(entry.text)]
+    copyProc.running = true
+  }
+
   // Live state when the backend is there, polled state when it is not.
   readonly property var devices: live ? FluxModel.devices({ devices: backend.devices }) : polledDevices
 
@@ -130,6 +169,8 @@ Column {
     id: actionProc
     onExited: Qt.callLater(root.refresh)
   }
+
+  Process { id: copyProc }
 
   Timer {
     id: poll
@@ -277,6 +318,131 @@ Column {
           foreground: root.foreground; fontFamily: root.fontFamily
           onClicked: root.act("pair.request", ["pair", row.modelData.name], row.modelData)
         }
+      }
+    }
+  }
+
+  // ---- What the phone is showing.
+  PanelSeparator { visible: root.notifications.length > 0; width: parent.width }
+
+  Text {
+    textFormat: Text.PlainText
+    visible: root.notifications.length > 0
+    text: "NOTIFICATIONS" + (root.notificationTotal > root.notifications.length
+      ? "  " + root.notifications.length + " of " + root.notificationTotal : "")
+    color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.6)
+    font.family: root.fontFamily; font.pixelSize: Style.font.caption; font.bold: true; font.letterSpacing: 1
+  }
+
+  Repeater {
+    model: root.notifications
+
+    delegate: Item {
+      id: note
+      required property var modelData
+      width: parent ? parent.width : 0
+      height: noteText.implicitHeight + Style.spacing.xs
+
+      Column {
+        id: noteText
+        anchors.left: parent.left
+        anchors.right: noteActions.left
+        anchors.rightMargin: Style.spacing.xs
+        anchors.verticalCenter: parent.verticalCenter
+        Text {
+          textFormat: Text.PlainText
+          width: parent.width
+          text: FluxModel.notificationMeta(note.modelData, root.nowSeconds)
+          color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.45)
+          elide: Text.ElideRight
+          font.family: root.fontFamily; font.pixelSize: Style.font.caption
+        }
+        Text {
+          textFormat: Text.PlainText
+          visible: text !== ""
+          width: parent.width
+          text: String(note.modelData.title || "")
+          color: root.foreground
+          elide: Text.ElideRight
+          font.family: root.fontFamily; font.pixelSize: Style.font.bodySmall; font.weight: Font.Medium
+        }
+        Text {
+          textFormat: Text.PlainText
+          visible: text !== ""
+          width: parent.width
+          text: String(note.modelData.text || "")
+          color: root.dim
+          elide: Text.ElideRight
+          maximumLineCount: 2
+          wrapMode: Text.Wrap
+          font.family: root.fontFamily; font.pixelSize: Style.font.caption
+        }
+      }
+
+      Row {
+        id: noteActions
+        anchors.right: parent.right
+        anchors.verticalCenter: parent.verticalCenter
+        PanelActionButton {
+          visible: !!note.modelData.dismissable
+          foreground: root.foreground; fontFamily: root.fontFamily
+          iconText: "󰅖"
+          tooltipText: "Dismiss on the phone"
+          onClicked: root.dismiss(note.modelData)
+        }
+      }
+    }
+  }
+
+  // ---- What the two machines have copied.
+  PanelSeparator { visible: root.clips.length > 0; width: parent.width }
+
+  Text {
+    textFormat: Text.PlainText
+    visible: root.clips.length > 0
+    text: "SHARED CLIPBOARD"
+    color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.6)
+    font.family: root.fontFamily; font.pixelSize: Style.font.caption; font.bold: true; font.letterSpacing: 1
+  }
+
+  Repeater {
+    model: root.clips
+
+    // An Item, not a Column: a Column refuses anchors from its children, and
+    // the whole row has to be one click target.
+    delegate: Item {
+      id: clip
+      required property var modelData
+      width: parent ? parent.width : 0
+      height: clipText.implicitHeight + Style.spacing.xs
+
+      Column {
+        id: clipText
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.verticalCenter: parent.verticalCenter
+        Text {
+          textFormat: Text.PlainText
+          width: parent.width
+          text: String(clip.modelData.text || "")
+          color: root.foreground
+          elide: Text.ElideRight
+          font.family: root.fontFamily; font.pixelSize: Style.font.bodySmall
+        }
+        Text {
+          textFormat: Text.PlainText
+          width: parent.width
+          text: FluxModel.clipboardMeta(clip.modelData, root.nowSeconds) + " · click to copy here"
+          color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.45)
+          elide: Text.ElideRight
+          font.family: root.fontFamily; font.pixelSize: Style.font.caption
+        }
+      }
+
+      MouseArea {
+        anchors.fill: parent
+        cursorShape: Qt.PointingHandCursor
+        onClicked: root.copyLocally(clip.modelData)
       }
     }
   }

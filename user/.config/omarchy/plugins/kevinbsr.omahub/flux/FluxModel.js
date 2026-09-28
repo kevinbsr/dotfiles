@@ -59,6 +59,67 @@ function pendingPairing(list) {
   return pending.length > 0 ? pending[0] : null
 }
 
+// ---- What the phone is showing and what the two machines have copied.
+//      Both come from the pushed state, so they exist only on the backend
+//      path; the CLI fallback has devices and actions and nothing else.
+
+// The phone's notifications, newest first. `app` is the Android app label,
+// `dismissable` says whether the × can do anything, and `replyId` marks the
+// ones a keyboard could answer (15 of 94 here -- WhatsApp and friends).
+function notifications(device, limit) {
+  var list = (device && device.notifications) || []
+  if (!Array.isArray(list)) return []
+  return list
+    .filter(function (n) { return n && (n.title || n.text) })
+    .sort(function (a, b) { return (b.time || 0) - (a.time || 0) })
+    .slice(0, limit || 6)
+}
+
+function notificationCount(device) {
+  var list = (device && device.notifications) || []
+  return Array.isArray(list) ? list.length : 0
+}
+
+// One line for a notification: the app, then how long ago. The title and text
+// are drawn separately, because they are the part worth reading.
+function notificationMeta(entry, nowSeconds) {
+  if (!entry) return ""
+  var parts = []
+  if (entry.app) parts.push(String(entry.app))
+  var ago = timeAgo(entry.time, nowSeconds)
+  if (ago !== "") parts.push(ago)
+  return parts.join(" · ")
+}
+
+// Shared clipboard, newest first. `dir` is "in" (from the phone) or "out"
+// (from here), which is the only way to tell whose copy this was.
+function clipboard(state, limit) {
+  var list = (state && state.clipboard) || []
+  if (!Array.isArray(list)) return []
+  return list
+    .filter(function (entry) { return entry && typeof entry.text === "string" && entry.text !== "" })
+    .slice(0, limit || 3)
+}
+
+function clipboardMeta(entry, nowSeconds) {
+  if (!entry) return ""
+  var who = entry.dir === "in" ? ("from " + (entry.deviceName || "the phone")) : "from this computer"
+  var ago = timeAgo(entry.time, nowSeconds)
+  return ago === "" ? who : who + " · " + ago
+}
+
+// Coarse on purpose: this sits under a title in caption type, where "2m" says
+// as much as a timestamp and takes a third of the room.
+function timeAgo(seconds, nowSeconds) {
+  if (typeof seconds !== "number" || seconds <= 0) return ""
+  var now = typeof nowSeconds === "number" ? nowSeconds : Math.floor(Date.now() / 1000)
+  var delta = Math.max(0, now - seconds)
+  if (delta < 60) return "now"
+  if (delta < 3600) return Math.floor(delta / 60) + "m"
+  if (delta < 86400) return Math.floor(delta / 3600) + "h"
+  return Math.floor(delta / 86400) + "d"
+}
+
 // QML reads these as plain functions off the imported namespace; the node
 // tests need them as a CommonJS module. Same guard the other models here use.
 if (typeof module !== "undefined") {
@@ -68,6 +129,12 @@ if (typeof module !== "undefined") {
     deviceTitle: deviceTitle,
     batteryText: batteryText,
     deviceSubtitle: deviceSubtitle,
-    pendingPairing: pendingPairing
+    pendingPairing: pendingPairing,
+    notifications: notifications,
+    notificationCount: notificationCount,
+    notificationMeta: notificationMeta,
+    clipboard: clipboard,
+    clipboardMeta: clipboardMeta,
+    timeAgo: timeAgo
   }
 }
