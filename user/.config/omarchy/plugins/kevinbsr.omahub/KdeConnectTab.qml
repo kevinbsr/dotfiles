@@ -101,7 +101,11 @@ Item {
   function tabHidden() { fluxSection.active = false }
 
   // ---- Tab contract: the composers take the keyboard whole while open.
-  readonly property bool keysBlocked: root.activeComposer !== "none"
+  // The Flux composer takes the keyboard the same way the KDE Connect one
+  // does; without this, typing a phone number would fire the panel's
+  // single-key page shortcuts.
+  readonly property bool keysBlocked: fluxSection.composerActive
+    || root.activeComposer !== "none"
     || !!(composerSection
       && ((composerSection.pingInput && composerSection.pingInput.activeFocus)
         || (composerSection.textInput && composerSection.textInput.activeFocus)))

@@ -101,3 +101,52 @@ test('the clipboard meta says which side copied it', () => {
   assert.equal(model.clipboardMeta({ text: 'x', dir: 'in', time: 0 }, now), 'from the phone');
   assert.equal(model.clipboardMeta(null, now), '');
 });
+
+// ---- The payloads, pinned to what Flux's own CLI sends.
+//
+// Captured by pointing `flux` at a stand-in socket that logged the request and
+// answered with an empty result, so nothing reached the phone. If fluxd ever
+// renames a field, these fail here instead of failing silently on someone's
+// desk.
+
+const dev = { id: '554ffce13b5e42fb9de2b2a97f6bbdaa', name: 'Galaxy S23 Ultra' };
+
+test('ping carries the device and the message', () => {
+  assert.deepEqual(model.pingParams(dev, 'oi'),
+    { device: dev.id, message: 'oi' });
+  assert.deepEqual(model.pingParams(null, null), { device: '', message: '' });
+});
+
+test('share.url carries the url', () => {
+  assert.deepEqual(model.urlParams(dev, 'https://example.com'),
+    { device: dev.id, url: 'https://example.com' });
+});
+
+test('clipboard.send omits text to mean the current clipboard', () => {
+  assert.deepEqual(model.clipboardParams(dev), { device: dev.id });
+  assert.deepEqual(model.clipboardParams(dev, ''), { device: dev.id });
+  assert.deepEqual(model.clipboardParams(dev, 'copiado'),
+    { device: dev.id, text: 'copiado' });
+});
+
+test('sms.send takes a list of addresses and a body', () => {
+  assert.deepEqual(model.smsParams(dev, '+5522999999999', 'oi'),
+    { device: dev.id, addresses: ['+5522999999999'], body: 'oi' });
+});
+
+test('share.files takes paths, and drops the empty ones', () => {
+  assert.deepEqual(model.filesParams(dev, ['/tmp/a.txt', '', '/tmp/b.txt']),
+    { device: dev.id, paths: ['/tmp/a.txt', '/tmp/b.txt'] });
+  assert.deepEqual(model.filesParams(dev, null), { device: dev.id, paths: [] });
+});
+
+test('a link goes to the browser, anything else arrives as text', () => {
+  assert.equal(model.shareMethod('https://omarchy.org'), 'share.url');
+  assert.equal(model.shareMethod('  http://x.test  '), 'share.url');
+  assert.equal(model.shareMethod('magnet:?xt=urn:btih:abc'), 'share.url');
+  assert.equal(model.shareMethod('mailto:a@b.c'), 'share.url');
+  assert.equal(model.shareMethod('lembrar de comprar pão'), 'share.text');
+  assert.equal(model.shareMethod('omarchy.org'), 'share.text'); // sem esquema, não é link
+  assert.equal(model.shareMethod(''), 'share.text');
+  assert.deepEqual(model.textParams({ id: 'abc' }, 'oi'), { device: 'abc', text: 'oi' });
+});

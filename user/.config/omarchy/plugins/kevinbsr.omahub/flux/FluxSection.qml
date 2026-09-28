@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import Quickshell.Io
 import qs.Commons
 import qs.Ui
@@ -80,6 +81,73 @@ Column {
     onTriggered: root.nowSeconds = Math.floor(Date.now() / 1000)
   }
 
+  // ---- The composer. One inline field for the three actions that need typed
+  //      input, instead of three panels: the Phone page is one column and a
+  //      person is doing one of these at a time.
+  //
+  //      The payload names are Flux's own, captured from what its CLI sends
+  //      rather than guessed: ping { message }, share.url { url },
+  //      sms.send { addresses: [..], body }, share.files { paths: [..] },
+  //      clipboard.send { text } (omitted = this machine's current clipboard).
+  property string composer: ""
+  property string draftTo: ""
+  property string draftBody: ""
+  readonly property bool composerActive: composer !== ""
+
+  function openComposer(mode) {
+    if (composer === mode) { closeComposer(); return }
+    composer = mode
+    draftBody = ""
+    if (mode !== "sms") draftTo = ""
+    Qt.callLater(function () { bodyField.forceActiveFocus() })
+  }
+
+  function closeComposer() {
+    composer = ""
+    draftTo = ""
+    draftBody = ""
+  }
+
+  function submitComposer() {
+    var device = activeDevice
+    if (!device) return
+    var body = String(draftBody).trim()
+    if (body === "") return
+
+    if (composer === "ping") {
+      if (live) backend.call("ping", FluxModel.pingParams(device, body), function () {})
+      else run(["ping", "--device", device.name, body])
+    } else if (composer === "url") {
+      var method = FluxModel.shareMethod(body)
+      if (live) {
+        backend.call(method, method === "share.url"
+          ? FluxModel.urlParams(device, body)
+          : FluxModel.textParams(device, body), function () {})
+      } else {
+        // The CLI has no verb for share.text; its `clip` is the closest, and
+        // it lands in the phone's clipboard, which is where shared text goes
+        // anyway.
+        run(method === "share.url" ? ["url", "--device", device.name, body]
+          : ["clip", "--device", device.name, body])
+      }
+    } else if (composer === "sms") {
+      var to = String(draftTo).trim()
+      if (to === "") return
+      if (live) backend.call("sms.send", FluxModel.smsParams(device, to, body), function () {})
+      else run(["sms", "--device", device.name, to, body])
+    }
+    closeComposer()
+  }
+
+  // Omarchy's own chooser, which is what Flux's picker runs too. Sending is a
+  // separate step from choosing, so a cancelled dialog sends nothing.
+  function pickAndSend() {
+    if (!activeDevice) return
+    pickProc.command = ["omarchy", "file", "select", "--title",
+      "Send to " + activeDevice.name, "--multiple"]
+    pickProc.running = true
+  }
+
   // Copying back into this machine's clipboard is a local act; Flux has no
   // method for it, and wl-copy is what the rest of the Hub uses.
   function copyLocally(entry) {
@@ -114,7 +182,8 @@ Column {
   // take the device *name* instead, which is why both forms are passed in.
   function act(method, cliArgs, device) {
     if (live) {
-      backend.call(method, { device: device.id }, function () {})
+      backend.call(method, method === "clipboard.send"
+        ? FluxModel.clipboardParams(device) : { device: device.id }, function () {})
       return
     }
     actionProc.command = ["flux"].concat(cliArgs)
@@ -175,6 +244,19 @@ Column {
   }
 
   Process { id: copyProc }
+
+  Process {
+    id: pickProc
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var paths = String(text || "").split("\n").filter(function (p) { return p.length > 0 })
+        if (paths.length === 0 || !root.activeDevice) return
+        if (root.live) root.backend.call("share.files", FluxModel.filesParams(root.activeDevice, paths), function () {})
+        else root.run(["send", "--device", root.activeDevice.name].concat(paths))
+      }
+    }
+  }
 
   Timer {
     id: poll
@@ -315,6 +397,34 @@ Column {
           tooltipText: "Send this computer's clipboard"
           onClicked: root.act("clipboard.send", ["clip", "--device", row.modelData.name], row.modelData)
         }
+        PanelActionButton {
+          visible: FluxModel.usable(row.modelData)
+          foreground: root.foreground; fontFamily: root.fontFamily
+          iconText: "󰈔"
+          tooltipText: "Send files"
+          onClicked: root.pickAndSend()
+        }
+        PanelActionButton {
+          visible: FluxModel.usable(row.modelData)
+          foreground: root.foreground; fontFamily: root.fontFamily
+          iconText: "󰍡"
+          tooltipText: "Send a text message through the phone"
+          onClicked: root.openComposer("sms")
+        }
+        PanelActionButton {
+          visible: FluxModel.usable(row.modelData)
+          foreground: root.foreground; fontFamily: root.fontFamily
+          iconText: "󰌷"
+          tooltipText: "Send a link or a piece of text"
+          onClicked: root.openComposer("url")
+        }
+        PanelActionButton {
+          visible: FluxModel.usable(row.modelData)
+          foreground: root.foreground; fontFamily: root.fontFamily
+          iconText: "󰀃"
+          tooltipText: "Send a ping"
+          onClicked: root.openComposer("ping")
+        }
         Button {
           visible: !row.modelData.paired
           text: "Pair"
@@ -322,6 +432,69 @@ Column {
           foreground: root.foreground; fontFamily: root.fontFamily
           onClicked: root.act("pair.request", ["pair", row.modelData.name], row.modelData)
         }
+      }
+    }
+  }
+
+  // The composer appears under the rows it belongs to, and takes the keyboard
+  // whole while it is open -- the tab reports that through keysBlocked, or
+  // typing an address would trigger the panel's own single-key shortcuts.
+  Column {
+    visible: root.composerActive
+    width: parent.width
+    spacing: Style.spacing.xs
+
+    Text {
+      textFormat: Text.PlainText
+      width: parent.width
+      text: root.composer === "sms" ? "Text message through the phone"
+        : root.composer === "url" ? "A link opens on the phone; anything else arrives as text"
+        : "Ping the phone"
+      color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.6)
+      font.family: root.fontFamily; font.pixelSize: Style.font.caption
+    }
+
+    TextField {
+      id: toField
+      visible: root.composer === "sms"
+      width: parent.width
+      placeholderText: "Number"
+      text: root.draftTo
+      color: root.foreground
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.bodySmall
+      onTextChanged: root.draftTo = text
+      Keys.onEscapePressed: root.closeComposer()
+      onAccepted: bodyField.forceActiveFocus()
+    }
+
+    TextField {
+      id: bodyField
+      width: parent.width
+      placeholderText: root.composer === "url" ? "https://… or any text"
+        : root.composer === "sms" ? "Message" : "Message"
+      text: root.draftBody
+      color: root.foreground
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.bodySmall
+      onTextChanged: root.draftBody = text
+      Keys.onEscapePressed: root.closeComposer()
+      onAccepted: root.submitComposer()
+    }
+
+    Row {
+      spacing: Style.spacing.xs
+      Button {
+        text: "Send"
+        bordered: true
+        foreground: root.foreground; fontFamily: root.fontFamily
+        onClicked: root.submitComposer()
+      }
+      Button {
+        text: "Cancel"
+        bordered: true
+        foreground: root.foreground; fontFamily: root.fontFamily
+        onClicked: root.closeComposer()
       }
     }
   }

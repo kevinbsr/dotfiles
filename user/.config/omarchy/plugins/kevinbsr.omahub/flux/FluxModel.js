@@ -90,6 +90,56 @@ function timeAgo(seconds, nowSeconds) {
   return Math.floor(delta / 86400) + "d"
 }
 
+// ---- The payloads fluxd expects.
+//
+// These are not guesses. They were captured by pointing Flux's own CLI at a
+// stand-in socket that logged the request and answered with an empty result,
+// so nothing reached the phone: `flux ping`, `flux url`, `flux clip`,
+// `flux sms` and `flux send` each showed their exact JSON. The tests below
+// pin those shapes, which is the only way this file can be wrong without
+// somebody's phone being the one to find out.
+
+function pingParams(device, message) {
+  return { device: deviceId(device), message: String(message || "") }
+}
+
+// A link opens in the browser on the phone; anything else lands as text to
+// copy or read. Flux has a method for each, and asking the person to pick
+// which one they meant would be a question with an obvious answer.
+function shareMethod(text) {
+  return /^(https?|ftp|magnet|mailto):/i.test(String(text || "").trim()) ? "share.url" : "share.text"
+}
+
+function textParams(device, text) {
+  return { device: deviceId(device), text: String(text || "") }
+}
+
+function urlParams(device, url) {
+  return { device: deviceId(device), url: String(url || "") }
+}
+
+// clipboard.send with no text means "this machine's current clipboard", which
+// is what the toolbar button sends; the composer path passes text.
+function clipboardParams(device, text) {
+  var params = { device: deviceId(device) }
+  if (typeof text === "string" && text !== "") params.text = text
+  return params
+}
+
+// Note the plural, and that addresses is a list: one message can go to several
+// numbers even though the page only offers one field.
+function smsParams(device, to, body) {
+  return { device: deviceId(device), addresses: [String(to || "")], body: String(body || "") }
+}
+
+function filesParams(device, paths) {
+  return { device: deviceId(device), paths: (paths || []).filter(function (p) { return !!p }) }
+}
+
+function deviceId(device) {
+  return device && device.id ? String(device.id) : ""
+}
+
 // QML reads these as plain functions off the imported namespace; the node
 // tests need them as a CommonJS module. Same guard the other models here use.
 if (typeof module !== "undefined") {
@@ -102,6 +152,13 @@ if (typeof module !== "undefined") {
     pendingPairing: pendingPairing,
     clipboard: clipboard,
     clipboardMeta: clipboardMeta,
-    timeAgo: timeAgo
+    timeAgo: timeAgo,
+    pingParams: pingParams,
+    urlParams: urlParams,
+    textParams: textParams,
+    shareMethod: shareMethod,
+    clipboardParams: clipboardParams,
+    smsParams: smsParams,
+    filesParams: filesParams
   }
 }

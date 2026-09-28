@@ -16,7 +16,8 @@ character while bringing related controls into one consistent surface.
 - MPRIS and PipeWire media controls with per-source volume and window focus.
 - Open-Meteo weather with rain, UV, sunrise, sunset and a three-day forecast.
 - Screen-time history, comparison, weekly trend and app breakdown.
-- Phone actions through KDE Connect or Flux, with Flux's shared clipboard history on the page.
+- Phone actions through KDE Connect or Flux: ring, files, SMS, links, ping,
+  and Flux's shared clipboard history.
 - Android device mirroring (adb/scrcpy) inline on the Phone page.
 - Sleep-aware CPU, memory, GPU and storage monitoring with a btop shortcut.
 - Mouse and keyboard navigation across all seven pages.
@@ -248,6 +249,14 @@ becomes an option worth revisiting; until then, loading beats copying.
 alone is the socket. It is loaded in the Hub's single service object rather
 than in the page, since there is one Panel per monitor and a socket per monitor
 is the mistake `HubIntegrations.qml` exists to prevent.
+
+The Flux page carries the same reach the KDE Connect one has — ring, send the
+clipboard, send files, send an SMS through the phone, send a link or a piece of
+text, ping — through Flux's own methods. Their payloads were not guessed: they
+were captured by pointing Flux's CLI at a stand-in socket that logged each
+request and answered with an empty result, so nothing reached a phone, and
+`tests/flux-devices.test.cjs` pins every shape. A field renamed upstream fails
+there instead of failing silently on someone's desk.
 
 On the backend path the page also shows the **shared clipboard**: the last few
 entries either machine copied, each saying which side it came from and when,
