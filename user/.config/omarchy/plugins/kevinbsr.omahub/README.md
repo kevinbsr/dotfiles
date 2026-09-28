@@ -17,7 +17,7 @@ character while bringing related controls into one consistent surface.
 - Open-Meteo weather with rain, UV, sunrise, sunset and a three-day forecast.
 - Screen-time history, comparison, weekly trend and app breakdown.
 - Phone actions through KDE Connect or Flux: ring, files, SMS, links, ping,
-  and Flux's shared clipboard history.
+  unpair, the phone's playback, and Flux's shared clipboard history.
 - Android device mirroring (adb/scrcpy) inline on the Phone page.
 - Sleep-aware CPU, memory, GPU and storage monitoring with a btop shortcut.
 - Mouse and keyboard navigation across all seven pages.
@@ -257,6 +257,13 @@ were captured by pointing Flux's CLI at a stand-in socket that logged each
 request and answered with an empty result, so nothing reached a phone, and
 `tests/flux-devices.test.cjs` pins every shape. A field renamed upstream fails
 there instead of failing silently on someone's desk.
+
+Three more come from the pushed state. While the phone is ringing the page
+says so and offers **Stop**, because that is the only thing that matters until
+it stops. When the phone is playing something, its **title, artist and
+transport** appear — the phone's session, not this computer's, which is what
+the Media page is for. And a paired device can be **unpaired**, behind a
+"Sure?" step, which is how a stale identity left by a re-pair gets cleaned up.
 
 On the backend path the page also shows the **shared clipboard**: the last few
 entries either machine copied, each saying which side it came from and when,

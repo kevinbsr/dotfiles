@@ -141,6 +141,34 @@ Column {
 
   // Omarchy's own chooser, which is what Flux's picker runs too. Sending is a
   // separate step from choosing, so a cancelled dialog sends nothing.
+  // The phone's own playback, when it has any. This is not the Media page:
+  // that one drives this computer's players over MPRIS, and these buttons
+  // reach the phone's session through Flux.
+  readonly property var phoneMedia: live ? FluxModel.media(activeDevice) : null
+  readonly property bool ringing: !!backend && !!backend.ringing
+
+  // Unpairing is the one action here that throws something away, so it asks
+  // first -- the same two-step the KDE Connect page uses for the same reason.
+  property string unpairConfirmingId: ""
+
+  function mediaAction(action) {
+    if (!live || !activeDevice) return
+    backend.call("media.action", FluxModel.mediaParams(activeDevice, action), function () {})
+  }
+
+  function stopRinging() {
+    if (live) backend.call("ring.stop", {}, function () {})
+    else run(["ring", "--stop"])
+  }
+
+  function unpair(device) {
+    if (!device) return
+    if (unpairConfirmingId !== device.id) { unpairConfirmingId = device.id; return }
+    unpairConfirmingId = ""
+    if (live) backend.call("pair.unpair", FluxModel.unpairParams(device), function () {})
+    else run(["unpair", device.name])
+  }
+
   function pickAndSend() {
     if (!activeDevice) return
     pickProc.command = ["omarchy", "file", "select", "--title",
@@ -273,6 +301,38 @@ Column {
     text: "FLUX"
     color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.6)
     font.family: root.fontFamily; font.pixelSize: Style.font.caption; font.bold: true; font.letterSpacing: 1
+  }
+
+  // Ringing is loud and in another room; stopping it is the only thing that
+  // matters while it lasts, so it gets the top of the page.
+  Rectangle {
+    visible: root.ringing
+    width: parent.width
+    height: ringRow.implicitHeight + Style.space(16)
+    radius: Style.cornerRadius
+    color: Qt.rgba(Color.urgent.r, Color.urgent.g, Color.urgent.b, 0.15)
+
+    Row {
+      id: ringRow
+      x: Style.space(12)
+      anchors.verticalCenter: parent.verticalCenter
+      width: parent.width - Style.space(24)
+      spacing: Style.spacing.sm
+
+      Text {
+        textFormat: Text.PlainText
+        anchors.verticalCenter: parent.verticalCenter
+        text: "The phone is ringing"
+        color: root.foreground
+        font.family: root.fontFamily; font.pixelSize: Style.font.bodySmall; font.weight: Font.Medium
+      }
+      Button {
+        text: "Stop"
+        bordered: true
+        foreground: root.foreground; fontFamily: root.fontFamily
+        onClicked: root.stopRinging()
+      }
+    }
   }
 
   Text {
@@ -426,12 +486,80 @@ Column {
           onClicked: root.openComposer("ping")
         }
         Button {
+          visible: !!row.modelData.paired
+          text: root.unpairConfirmingId === row.modelData.id ? "Sure?" : "Unpair"
+          bordered: true
+          foreground: root.unpairConfirmingId === row.modelData.id ? Color.urgent : root.dim
+          fontFamily: root.fontFamily
+          onClicked: root.unpair(row.modelData)
+        }
+        Button {
           visible: !row.modelData.paired
           text: "Pair"
           bordered: true
           foreground: root.foreground; fontFamily: root.fontFamily
           onClicked: root.act("pair.request", ["pair", row.modelData.name], row.modelData)
         }
+      }
+    }
+  }
+
+  // What the phone is playing, and the three controls worth reaching without
+  // picking the phone up. Hidden entirely when nothing is playing: an empty
+  // transport bar is furniture.
+  Item {
+    visible: !!root.phoneMedia
+    width: parent.width
+    height: mediaText.implicitHeight + Style.spacing.sm
+
+    Column {
+      id: mediaText
+      anchors.left: parent.left
+      anchors.right: mediaButtons.left
+      anchors.rightMargin: Style.spacing.xs
+      anchors.verticalCenter: parent.verticalCenter
+      Text {
+        textFormat: Text.PlainText
+        width: parent.width
+        text: root.phoneMedia ? root.phoneMedia.title : ""
+        color: root.foreground
+        elide: Text.ElideRight
+        font.family: root.fontFamily; font.pixelSize: Style.font.bodySmall; font.weight: Font.Medium
+      }
+      Text {
+        textFormat: Text.PlainText
+        visible: text !== ""
+        width: parent.width
+        text: root.phoneMedia ? root.phoneMedia.artist : ""
+        color: root.dim
+        elide: Text.ElideRight
+        font.family: root.fontFamily; font.pixelSize: Style.font.caption
+      }
+    }
+
+    Row {
+      id: mediaButtons
+      anchors.right: parent.right
+      anchors.verticalCenter: parent.verticalCenter
+      spacing: Style.spacing.xs
+
+      PanelActionButton {
+        foreground: root.foreground; fontFamily: root.fontFamily
+        iconText: "󰒮"
+        tooltipText: "Previous on the phone"
+        onClicked: root.mediaAction("Previous")
+      }
+      PanelActionButton {
+        foreground: root.foreground; fontFamily: root.fontFamily
+        iconText: root.phoneMedia && root.phoneMedia.playing ? "󰏤" : "󰐊"
+        tooltipText: root.phoneMedia && root.phoneMedia.playing ? "Pause the phone" : "Play on the phone"
+        onClicked: root.mediaAction("PlayPause")
+      }
+      PanelActionButton {
+        foreground: root.foreground; fontFamily: root.fontFamily
+        iconText: "󰒭"
+        tooltipText: "Next on the phone"
+        onClicked: root.mediaAction("Next")
       }
     }
   }

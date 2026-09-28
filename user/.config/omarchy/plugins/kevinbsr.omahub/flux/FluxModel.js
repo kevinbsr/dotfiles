@@ -136,6 +136,25 @@ function filesParams(device, paths) {
   return { device: deviceId(device), paths: (paths || []).filter(function (p) { return !!p }) }
 }
 
+// What the phone is playing, when it is playing something. Flux fills this
+// from the phone's own media session; an empty object means nothing is.
+function media(device) {
+  var m = device && device.media
+  if (!m || typeof m !== "object") return null
+  var title = String(m.title || "")
+  var artist = String(m.artist || m.album || "")
+  if (title === "" && artist === "") return null
+  return { title: title, artist: artist, playing: m.playing !== false, raw: m }
+}
+
+function mediaParams(device, action) {
+  return { device: deviceId(device), action: String(action || "PlayPause") }
+}
+
+function unpairParams(device) {
+  return { device: deviceId(device) }
+}
+
 function deviceId(device) {
   return device && device.id ? String(device.id) : ""
 }
@@ -159,6 +178,9 @@ if (typeof module !== "undefined") {
     shareMethod: shareMethod,
     clipboardParams: clipboardParams,
     smsParams: smsParams,
-    filesParams: filesParams
+    filesParams: filesParams,
+    media: media,
+    mediaParams: mediaParams,
+    unpairParams: unpairParams
   }
 }
