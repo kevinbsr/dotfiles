@@ -154,3 +154,20 @@ test('a link goes to the browser, anything else arrives as text', () => {
 test('unpair carries the device', () => {
   assert.deepEqual(model.unpairParams({ id: 'abc' }), { device: 'abc' });
 });
+
+test('a button is only drawn for something the phone says it can do', () => {
+  const phone6 = { plugins: ['battery', 'clipboard', 'findmyphone', 'notifications', 'runcommand', 'share'] };
+  assert.equal(model.supports(phone6, 'ring'), true);
+  assert.equal(model.supports(phone6, 'clipboard'), true);
+  assert.equal(model.supports(phone6, 'share'), true);
+  assert.equal(model.supports(phone6, 'sms'), false);   // this phone does not advertise sms
+  assert.equal(model.supports(phone6, 'ping'), true);   // no plugin of its own
+
+  // A device that advertises nothing at all is given the benefit of the doubt:
+  // hiding every button over a missing field would be worse than a click that
+  // does nothing.
+  assert.equal(model.supports({}, 'sms'), true);
+  assert.equal(model.supports({ plugins: [] }, 'sms'), true);
+  assert.equal(model.supports(null, 'sms'), true);
+  assert.equal(model.supports({ plugins: ['sms'] }, 'sms'), true);
+});

@@ -442,35 +442,35 @@ Column {
         spacing: Style.spacing.xs
 
         PanelActionButton {
-          visible: FluxModel.usable(row.modelData)
+          visible: FluxModel.usable(row.modelData) && FluxModel.supports(row.modelData, "ring")
           foreground: root.foreground; fontFamily: root.fontFamily
           iconText: "󰂚"
           tooltipText: "Ring the phone"
           onClicked: root.act("ring", ["ring", "--device", row.modelData.name], row.modelData)
         }
         PanelActionButton {
-          visible: FluxModel.usable(row.modelData)
+          visible: FluxModel.usable(row.modelData) && FluxModel.supports(row.modelData, "clipboard")
           foreground: root.foreground; fontFamily: root.fontFamily
           iconText: "󰅇"
           tooltipText: "Send this computer's clipboard"
           onClicked: root.act("clipboard.send", ["clip", "--device", row.modelData.name], row.modelData)
         }
         PanelActionButton {
-          visible: FluxModel.usable(row.modelData)
+          visible: FluxModel.usable(row.modelData) && FluxModel.supports(row.modelData, "share")
           foreground: root.foreground; fontFamily: root.fontFamily
           iconText: "󰈔"
           tooltipText: "Send files"
           onClicked: root.pickAndSend()
         }
         PanelActionButton {
-          visible: FluxModel.usable(row.modelData)
+          visible: FluxModel.usable(row.modelData) && FluxModel.supports(row.modelData, "sms")
           foreground: root.foreground; fontFamily: root.fontFamily
           iconText: "󰍡"
           tooltipText: "Send a text message through the phone"
           onClicked: root.openComposer("sms")
         }
         PanelActionButton {
-          visible: FluxModel.usable(row.modelData)
+          visible: FluxModel.usable(row.modelData) && FluxModel.supports(row.modelData, "share")
           foreground: root.foreground; fontFamily: root.fontFamily
           iconText: "󰌷"
           tooltipText: "Send a link or a piece of text"

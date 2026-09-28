@@ -140,6 +140,31 @@ function unpairParams(device) {
   return { device: deviceId(device) }
 }
 
+// What the phone says it can do. A device advertises its capabilities when it
+// pairs, and Flux passes that list through as `plugins`. An action whose
+// capability is missing would fail silently on the wire, so the button for it
+// is not drawn -- the same rule the Android Mirror section follows for
+// notifications that cannot be dismissed.
+//
+// Observed on a Galaxy S23 Ultra running Flux for Android 0.4.0: battery,
+// clipboard, findmyphone, notifications, runcommand and share, with no `sms`,
+// `sftp` or `connectivity_report`, which is why the SMS button can be absent
+// on a perfectly healthy pairing.
+var CAPABILITY = {
+  ring: "findmyphone",
+  clipboard: "clipboard",
+  share: "share",
+  sms: "sms"
+}
+
+function supports(device, action) {
+  var needed = CAPABILITY[action]
+  if (!needed) return true            // ping has no plugin of its own
+  var plugins = (device && device.plugins) || []
+  if (!Array.isArray(plugins) || plugins.length === 0) return true  // says nothing: assume yes
+  return plugins.indexOf(needed) >= 0
+}
+
 function deviceId(device) {
   return device && device.id ? String(device.id) : ""
 }
@@ -164,6 +189,7 @@ if (typeof module !== "undefined") {
     clipboardParams: clipboardParams,
     smsParams: smsParams,
     filesParams: filesParams,
-    unpairParams: unpairParams
+    unpairParams: unpairParams,
+    supports: supports
   }
 }
