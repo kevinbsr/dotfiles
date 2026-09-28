@@ -78,59 +78,7 @@ test('pending pairing is the one device waiting on a decision', () => {
   assert.equal(model.pendingPairing([phone({ paired: false, pairState: 'unpaired' })]), null);
 });
 
-// ---- What the phone is showing, and the shared clipboard.
-
-const note = (over = {}) => Object.assign({
-  id: '0|com.whatsapp|1|abc|10361',
-  app: 'WhatsApp',
-  title: 'A group',
-  text: 'a message',
-  time: 1790565216,
-  replyId: '',
-  actions: [],
-  dismissable: true,
-}, over);
-
-test('notifications come back newest first and capped', () => {
-  const device = { notifications: [
-    note({ time: 100, title: 'old' }),
-    note({ time: 300, title: 'newest' }),
-    note({ time: 200, title: 'middle' }),
-  ] };
-  assert.deepEqual(model.notifications(device, 2).map(n => n.title), ['newest', 'middle']);
-  assert.equal(model.notificationCount(device), 3);
-});
-
-test('a notification with neither title nor text is not a row', () => {
-  const device = { notifications: [note({ title: '', text: '' }), note()] };
-  assert.equal(model.notifications(device).length, 1);
-});
-
-test('devices with no notifications at all do not throw', () => {
-  assert.deepEqual(model.notifications(null), []);
-  assert.deepEqual(model.notifications({}), []);
-  assert.deepEqual(model.notifications({ notifications: 'nope' }), []);
-  assert.equal(model.notificationCount({ notifications: 'nope' }), 0);
-});
-
-test('the meta line is the app and how long ago', () => {
-  const now = 1790565216 + 600;
-  assert.equal(model.notificationMeta(note(), now), 'WhatsApp · 10m');
-  assert.equal(model.notificationMeta(note({ app: '' }), now), '10m');
-  assert.equal(model.notificationMeta(note({ time: 0 }), now), 'WhatsApp');
-  assert.equal(model.notificationMeta(null, now), '');
-});
-
-test('time ago stays coarse and never goes negative', () => {
-  const now = 1000000;
-  assert.equal(model.timeAgo(now - 5, now), 'now');
-  assert.equal(model.timeAgo(now - 90, now), '1m');
-  assert.equal(model.timeAgo(now - 7200, now), '2h');
-  assert.equal(model.timeAgo(now - 200000, now), '2d');
-  assert.equal(model.timeAgo(now + 500, now), 'now'); // a clock that disagrees
-  assert.equal(model.timeAgo(0, now), '');
-  assert.equal(model.timeAgo('nope', now), '');
-});
+// ---- The shared clipboard.
 
 test('clipboard entries keep their order and drop the empty ones', () => {
   const state = { clipboard: [

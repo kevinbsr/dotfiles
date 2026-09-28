@@ -46,18 +46,27 @@ Column {
   readonly property bool live: !!backend && !!backend.connected
 
   // The phone this page is about: the first paired, reachable one. Flux can
-  // hold several, but the notifications and the clipboard belong to whichever
-  // is actually connected, and a picker for a list of one would be furniture.
+  // hold several, but the clipboard and the actions belong to whichever is
+  // actually connected, and a picker for a list of one would be furniture.
   readonly property var activeDevice: {
     for (var i = 0; i < devices.length; i++)
       if (FluxModel.usable(devices[i])) return devices[i]
     return null
   }
-  // Both of these come from the pushed state, so they exist on the backend
-  // path only. The CLI fallback keeps devices and actions; parsing the text of
-  // `flux notifications` to rebuild this would be a second, worse reader.
-  readonly property var notifications: live ? FluxModel.notifications(activeDevice, 6) : []
-  readonly property int notificationTotal: live ? FluxModel.notificationCount(activeDevice) : 0
+  // The shared clipboard, from the pushed state, so it exists on the backend
+  // path only.
+  //
+  // Deliberately NOT the phone's notifications: fluxd already forwards those
+  // to the desktop's own notification daemon (org.freedesktop.Notifications,
+  // with settings.notifications on), so a list of them in here would be the
+  // same information a second time, in a place nobody is looking when they
+  // arrive. Kevin's call, and the right one.
+  //
+  // The clipboard earns its place for the opposite reason: autoClipboard puts
+  // the newest copy on this machine by itself, and nothing on this desktop
+  // keeps the ones before it -- there is no clipboard history here, only
+  // `wl-clip-persist`. These rows are that history, and the click is the only
+  // way back to an entry the automatic sync has already replaced.
   readonly property var clips: live ? FluxModel.clipboard({ clipboard: backend.clipboard }, 3) : []
 
   // One clock for every "2m" on the page, ticking a minute at a time while it
@@ -69,11 +78,6 @@ Column {
     repeat: true
     running: root.active
     onTriggered: root.nowSeconds = Math.floor(Date.now() / 1000)
-  }
-
-  function dismiss(entry) {
-    if (!live || !activeDevice || !entry) return
-    backend.call("notification.dismiss", { device: activeDevice.id, id: entry.id }, function () {})
   }
 
   // Copying back into this machine's clipboard is a local act; Flux has no
@@ -317,78 +321,6 @@ Column {
           bordered: true
           foreground: root.foreground; fontFamily: root.fontFamily
           onClicked: root.act("pair.request", ["pair", row.modelData.name], row.modelData)
-        }
-      }
-    }
-  }
-
-  // ---- What the phone is showing.
-  PanelSeparator { visible: root.notifications.length > 0; width: parent.width }
-
-  Text {
-    textFormat: Text.PlainText
-    visible: root.notifications.length > 0
-    text: "NOTIFICATIONS" + (root.notificationTotal > root.notifications.length
-      ? "  " + root.notifications.length + " of " + root.notificationTotal : "")
-    color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.6)
-    font.family: root.fontFamily; font.pixelSize: Style.font.caption; font.bold: true; font.letterSpacing: 1
-  }
-
-  Repeater {
-    model: root.notifications
-
-    delegate: Item {
-      id: note
-      required property var modelData
-      width: parent ? parent.width : 0
-      height: noteText.implicitHeight + Style.spacing.xs
-
-      Column {
-        id: noteText
-        anchors.left: parent.left
-        anchors.right: noteActions.left
-        anchors.rightMargin: Style.spacing.xs
-        anchors.verticalCenter: parent.verticalCenter
-        Text {
-          textFormat: Text.PlainText
-          width: parent.width
-          text: FluxModel.notificationMeta(note.modelData, root.nowSeconds)
-          color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.45)
-          elide: Text.ElideRight
-          font.family: root.fontFamily; font.pixelSize: Style.font.caption
-        }
-        Text {
-          textFormat: Text.PlainText
-          visible: text !== ""
-          width: parent.width
-          text: String(note.modelData.title || "")
-          color: root.foreground
-          elide: Text.ElideRight
-          font.family: root.fontFamily; font.pixelSize: Style.font.bodySmall; font.weight: Font.Medium
-        }
-        Text {
-          textFormat: Text.PlainText
-          visible: text !== ""
-          width: parent.width
-          text: String(note.modelData.text || "")
-          color: root.dim
-          elide: Text.ElideRight
-          maximumLineCount: 2
-          wrapMode: Text.Wrap
-          font.family: root.fontFamily; font.pixelSize: Style.font.caption
-        }
-      }
-
-      Row {
-        id: noteActions
-        anchors.right: parent.right
-        anchors.verticalCenter: parent.verticalCenter
-        PanelActionButton {
-          visible: !!note.modelData.dismissable
-          foreground: root.foreground; fontFamily: root.fontFamily
-          iconText: "󰅖"
-          tooltipText: "Dismiss on the phone"
-          onClicked: root.dismiss(note.modelData)
         }
       }
     }

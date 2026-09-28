@@ -16,8 +16,7 @@ character while bringing related controls into one consistent surface.
 - MPRIS and PipeWire media controls with per-source volume and window focus.
 - Open-Meteo weather with rain, UV, sunrise, sunset and a three-day forecast.
 - Screen-time history, comparison, weekly trend and app breakdown.
-- Phone actions through KDE Connect, or through Flux with the phone's
-  notifications and the shared clipboard on the page.
+- Phone actions through KDE Connect or Flux, with Flux's shared clipboard history on the page.
 - Android device mirroring (adb/scrcpy) inline on the Phone page.
 - Sleep-aware CPU, memory, GPU and storage monitoring with a btop shortcut.
 - Mouse and keyboard navigation across all seven pages.
@@ -250,13 +249,17 @@ alone is the socket. It is loaded in the Hub's single service object rather
 than in the page, since there is one Panel per monitor and a socket per monitor
 is the mistake `HubIntegrations.qml` exists to prevent.
 
-On the backend path the page shows more than the devices, because the pushed
-state carries more: the **phone's notifications** (app, title, text, how long
-ago, and a dismiss that reaches the phone through `notification.dismiss`) and
-the **shared clipboard** (the last few entries either machine copied, with a
-click to put one back on this computer's clipboard). Neither appears on the CLI
-path — rebuilding them by parsing the text of `flux notifications` would be a
-second, worse reader of the same data.
+On the backend path the page also shows the **shared clipboard**: the last few
+entries either machine copied, each saying which side it came from and when,
+and a click puts one back on this computer's clipboard. It earns the space
+because `autoClipboard` already delivers the *newest* copy by itself and
+nothing on an Omarchy desktop keeps the ones before it — there is no clipboard
+history here, only `wl-clip-persist`. These rows are that history.
+
+The phone's notifications are deliberately **not** listed here. fluxd already
+forwards them to the desktop's own notification daemon, so a list inside a
+panel would be the same information a second time, somewhere nobody is looking
+when it arrives. This page is for what the system does not already show.
 
 `flux/FluxModel.js` parses what either path returns, and treats every field as
 optional: it is another project's output, and a missing key must make a quieter
