@@ -130,7 +130,14 @@ print(d.get("sig",""), d.get("blit",0), d.get("lag",0), d.get("hypr_cpu",0), d.g
   # answer the next morning instead of a shrug. Nothing polls while the machine
   # is quiet.
   if (( d_forks > 4000 )); then
-    python3 - "$STATE/storms.jsonl" <<'SPY' &
+    # Synchronously, not in the background: the service is Type=oneshot, and
+    # systemd's default KillMode=control-group kills whatever is left in the
+    # cgroup the moment the main process exits -- which is well under a second,
+    # so a backgrounded two-second capture never lived to write a line. Eleven
+    # days of storms, including minutes at 13000 forks, produced an empty file
+    # because of it. Two seconds inside the sample is the price, and only on a
+    # minute that is already extraordinary.
+    python3 - "$STATE/storms.jsonl" <<'SPY' 
 import collections, json, pathlib, sys, time
 seen = {int(p.name) for p in pathlib.Path("/proc").iterdir() if p.name.isdigit()}
 pairs, samples = collections.Counter(), {}
