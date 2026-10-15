@@ -1,0 +1,93 @@
+--- a/usr/share/flea/ui/PreviewImage.qml
++++ b/usr/share/flea/ui/PreviewImage.qml
+@@ -1,4 +1,5 @@
+ import QtQuick
++import Quickshell.Io
+ import qs.Commons
+ import "." as Flea
+ import "js/Format.js" as Format
+@@ -12,7 +13,7 @@
+     property string path: ""
+ 
+     // The same name the media and PDF panes give their unreadable state, so Preview.qml tests one property.
+-    readonly property bool failed: picture.status === Image.Error
++    readonly property bool failed: picture.status === Image.Error || root.renderFailed
+     // Every state is terminal: a decode ends Ready or Error, and a vanished file ends Error too.
+     readonly property string status: {
+         if (root.failed) return "This image could not be read."
+@@ -20,6 +21,65 @@
+     }
+     readonly property string name: root.path.substring(root.path.lastIndexOf("/") + 1)
+ 
++    // Local patch (flea-quicklook-mesh): an STL or 3MF carries an image icon but is no image, so the
++    // picture drawn is a render /usr/local/bin/mesh-preview makes and caches; "" until it lands.
++    readonly property bool mesh: /\.(stl|3mf)$/i.test(root.path)
++    property string rendered: ""
++    property bool renderFailed: false
++    onPathChanged: root.render()
++
++    function render() {
++        root.rendered = ""
++        root.renderFailed = false
++        // A render for the previous file is killed, and its exit starts the one now wanted.
++        if (renderer.running) {
++            renderer.stale = true
++            renderer.running = false
++            return
++        }
++        renderer.stale = false
++        // Tested on the path itself: this runs on the path's own change signal, before the mesh binding has caught up.
++        if (!/\.(stl|3mf)$/i.test(root.path)) return
++        renderer.answer = ""
++        renderer.exitCode = -1
++        renderer.streamDone = false
++        renderer.command = ["/usr/local/bin/mesh-preview", root.path]
++        renderer.running = true
++    }
++
++    Process {
++        id: renderer
++
++        property bool stale: false
++        property string answer: ""
++        property int exitCode: -1
++        property bool streamDone: false
++
++        // The exit and the end of stdout arrive in either order, so the answer waits for both.
++        function settle() {
++            if (renderer.stale) {
++                if (renderer.exitCode !== -1) root.render()
++                return
++            }
++            if (renderer.exitCode === -1 || !renderer.streamDone) return
++            root.renderFailed = renderer.exitCode !== 0 || renderer.answer.length === 0
++            if (!root.renderFailed) root.rendered = renderer.answer
++        }
++
++        stdout: StdioCollector {
++            waitForEnd: true
++            onStreamFinished: {
++                renderer.answer = this.text.trim()
++                renderer.streamDone = true
++                renderer.settle()
++            }
++        }
++        onExited: function (exitCode, exitStatus) {
++            renderer.exitCode = exitCode
++            renderer.settle()
++        }
++    }
++
+     // The letterbox ground the video pane uses: a photo almost never matches the surface's proportions.
+     Rectangle {
+         anchors.fill: parent
+@@ -39,7 +99,8 @@
+         height: root.vector ? root.height : implicitHeight * fit
+         visible: picture.status === Image.Ready
+         // Format.fileUri, not a concatenation: a # or a ? in the name would truncate a hand-built URI.
+-        source: root.path.length > 0 ? Format.fileUri(root.path) : ""
++        source: root.mesh ? (root.rendered.length > 0 ? Format.fileUri(root.rendered) : "")
++                          : (root.path.length > 0 ? Format.fileUri(root.path) : "")
+         fillMode: root.vector ? Image.PreserveAspectFit : Image.Stretch
+         // A phone keeps a portrait photo's turn in EXIF, and Qt leaves it unapplied unless asked.
+         autoTransform: true

@@ -1,0 +1,49 @@
+--- a/usr/share/omarchy/shell/plugins/bar/Bar.qml	2026-10-15 16:06:22.522524233 -0300
++++ b/usr/share/omarchy/shell/plugins/bar/Bar.qml	2026-10-15 16:06:22.530955841 -0300
+@@ -1368,11 +1368,28 @@
+ 
+         CenterGestureArea { anchors.fill: parent }
+ 
+-        HoverHandler {
+-          onHoveredChanged: root.setCenterSectionHovered(hovered)
++        // Local change (kevin, 2026-09-21): same fix as verticalCenterModules
++        // below, applied to the horizontal case it was missing from. The
++        // reveal hover used to fill this item, which fills the whole bar --
++        // and since revealing widens the indicator section, it can shift
++        // where this content sits, un-hovering and re-hovering in a loop
++        // that never settles on its own. Limit it to the span of the center
++        // modules, so a width change caused by the indicators can no longer
++        // move this area's edge under a stationary pointer.
++        Item {
++          readonly property Item first: centerRoot.hasAnchor ? centerBefore : centerPlain
++          readonly property Item last: centerRoot.hasAnchor ? centerAfter : centerPlain
++          x: Math.min(first.x, centerAnchorModule.visible ? centerAnchorModule.x : first.x)
++          width: Math.max(last.x + last.width, centerAnchorModule.visible ? centerAnchorModule.x + centerAnchorModule.width : 0) - x
++          height: parent.height
++
++          HoverHandler {
++            onHoveredChanged: root.setCenterSectionHovered(hovered)
++          }
+         }
+ 
+         ModuleList {
++          id: centerPlain
+           visible: !centerRoot.hasAnchor
+           entries: centerRoot.entries
+           region: "center"
+@@ -1380,6 +1397,7 @@
+         }
+ 
+         ModuleList {
++          id: centerBefore
+           visible: centerRoot.hasAnchor
+           entries: root.entriesBefore(centerRoot.entries, root.centerAnchor)
+           region: "center"
+@@ -1396,6 +1414,7 @@
+         }
+ 
+         ModuleList {
++          id: centerAfter
+           visible: centerRoot.hasAnchor
+           entries: root.entriesAfter(centerRoot.entries, root.centerAnchor)
+           region: "center"
