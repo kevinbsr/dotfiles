@@ -4,6 +4,8 @@
 -- OCR (omarchy capture text) reconhecendo inglês e português.
 hl.env("OMARCHY_OCR_LANGS", "eng+por")
 
+-- Flea UI patched for Qt 6.12+ (Commons.Color namespace collision fix)
+
 -- O bloco de GPU abaixo é gerado por ~/.local/bin/omarchy-gpu-env-sync.
 -- Rodar de novo após trocar o modo gráfico na BIOS ou via supergfxctl.
 
