@@ -53,6 +53,21 @@ shopt -s nullglob
 
 HYPR_SIG="$(hypr_signature)" || HYPR_SIG=""
 
+# Only while nobody is at the machine. The hours alone were not enough: on
+# 2026-10-16 the 21:07 run found a new kernel and the charger out, and suspended
+# the laptop in Kevin's hands. A locked session is the signal that he stepped
+# away (idle lock or by hand); with no live session at all there is no one to
+# interrupt either. Both phases need it: the AC suite pins the CPU for hours.
+# Fails closed: if the lock state cannot be read, nothing runs.
+if [[ -n $HYPR_SIG ]]; then
+  lock_status=$(as_user OMARCHY_PATH=/usr/share/omarchy PATH=/usr/share/omarchy/bin:/usr/bin \
+    /usr/bin/omarchy-shell lock status 2>/dev/null)
+  if [[ $lock_status != *'"locked":true'* ]]; then
+    log "session not locked (or lock state unreadable): trying again next hour"
+    exit 0
+  fi
+fi
+
 # The two phases want opposite things -- the suite wants the charger in, the
 # suspend cycle wants it out -- so neither waits for the other. Chaining them
 # meant that unplugging for the suspend measurement also blocked it, because
