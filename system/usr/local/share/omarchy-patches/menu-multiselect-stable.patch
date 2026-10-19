@@ -128,7 +128,7 @@
  
 --- a/usr/share/omarchy/shell/plugins/menu/Menu.qml
 +++ b/usr/share/omarchy/shell/plugins/menu/Menu.qml
-@@ -56,6 +56,14 @@
+@@ -57,6 +57,14 @@
    readonly property bool dmenuActive: mode === "select" || mode === "input"
    property string dmenuPrompt: ""
    property var dmenuOptions: []
@@ -143,8 +143,8 @@
    property string selectionFile: ""
    property string doneFile: ""
    property int dmenuWidth: 300
-@@ -550,6 +558,18 @@
-     root.cursorActive = target >= 0
+@@ -508,6 +516,18 @@
+     return MenuModel.displayRow(root.items, root.itemOrder, root.checkedResults, entry, detail, score, section)
    }
  
 +  // An option is "<label>", "<glyph>\t<label>", or "<glyph>\t<label>\t<subtext>".
@@ -162,7 +162,7 @@
    function rebuildDmenuDisplay() {
      displayModel.clear()
      root.searchDivider = false
-@@ -561,27 +581,20 @@
+@@ -519,26 +539,19 @@
  
      var query = root.filterText.trim().toLowerCase()
      for (var i = 0; i < root.dmenuOptions.length; i++) {
@@ -181,7 +181,6 @@
 +          && option.detail.toLowerCase().indexOf(query) < 0) continue
        displayModel.append({
          itemId: "dmenu." + i,
-         disabled: false,
          kind: "dmenu",
 -        icon: icon,
 +        icon: option.icon,
@@ -196,7 +195,7 @@
          path: "",
          childCount: 0,
          action: "",
-@@ -764,8 +777,12 @@
+@@ -723,8 +736,12 @@
          return
        }
        if (index < 0 || index >= displayModel.count) return
@@ -210,7 +209,7 @@
        return
      }
  
-@@ -812,6 +829,57 @@
+@@ -771,6 +788,57 @@
      if (root.appLibrary) root.appLibrary.remove(target.appId, target.label)
    }
  
@@ -268,7 +267,7 @@
    function applyDmenuSelection(value) {
      applySerial = requestSerial
      opened = false
-@@ -837,6 +905,8 @@
+@@ -796,6 +864,8 @@
    function openExistingMenu(initialMenu) {
      requestSerial += 1
      mode = "menu"
@@ -277,7 +276,7 @@
      requestActive = false
      selectionFile = ""
      doneFile = ""
-@@ -863,6 +933,8 @@
+@@ -822,6 +892,8 @@
      mode = payload.mode === "input" ? "input" : "select"
      dmenuPrompt = String(payload.prompt || (mode === "input" ? "Input" : "Select"))
      dmenuOptions = Array.isArray(payload.options) ? payload.options : []
@@ -286,7 +285,7 @@
      selectionFile = String(payload.selectionFile || "")
      doneFile = String(payload.doneFile || "")
      requestActive = !!doneFile
-@@ -1139,6 +1211,9 @@
+@@ -1092,6 +1164,9 @@
            } else if ((event.key === Qt.Key_Backspace || event.key === Qt.Key_Left) && !root.filterText) {
              root.goBack()
              event.accepted = true
@@ -296,17 +295,17 @@
            } else if (event.key === Qt.Key_Up) {
              root.select(-1)
              event.accepted = true
-@@ -1154,6 +1229,7 @@
+@@ -1107,6 +1182,7 @@
            } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Right) {
              if (root.dmenuActive) {
                if (root.mode === "input") root.applyDmenuSelection(root.filterText)
 +              else if (root.multiActive) root.confirmMultiSelection()
                else if (displayModel.count > 0) root.activateIndex(root.cursorActive ? root.selectedIndex : 0)
              } else if (root.cursorActive) root.activateIndex(root.selectedIndex)
-             else root.settleCursor()
-@@ -1200,7 +1276,8 @@
- 
+             else if (displayModel.count > 0) root.cursorActive = true
+@@ -1154,7 +1230,8 @@
            Text {
+             textFormat: Text.PlainText
              anchors.left: parent.left
 -            anchors.right: parent.right
 +            anchors.right: multiHint.visible ? multiHint.left : parent.right
@@ -314,7 +313,7 @@
              anchors.verticalCenter: parent.verticalCenter
              text: root.filterText || (root.dmenuActive ? (root.dmenuPrompt + "…") : ((root.item(root.activeMenu) ? (root.item(root.activeMenu).title || root.item(root.activeMenu).label) : "Go") + "…"))
              color: root.foreground
-@@ -1210,6 +1287,21 @@
+@@ -1164,6 +1241,21 @@
              elide: Text.ElideRight
            }
  
@@ -336,15 +335,15 @@
          }
  
          Item {
-@@ -1262,6 +1354,7 @@
-               required property bool disabled
+@@ -1215,6 +1307,7 @@
+               required property int childCount
  
                readonly property bool hasCursor: root.cursorActive && row.index === root.selectedIndex
 +              readonly property bool checked: root.multiActive && root.isChecked(row.label, row.detail)
                readonly property bool isApp: row.kind === "app"
                readonly property bool hasIcon: row.icon.length > 0 || row.isApp
  
-@@ -1351,7 +1444,7 @@
+@@ -1304,7 +1397,7 @@
  
                Row {
                  id: trail
@@ -353,7 +352,7 @@
                  anchors.right: parent.right
                  anchors.rightMargin: root.rowReservedBorderRight + Style.space(8)
                  y: contentColumn.y + labelText.y + (labelText.height - height) / 2
-@@ -1367,6 +1460,35 @@
+@@ -1321,6 +1414,35 @@
                    anchors.verticalCenter: parent.verticalCenter
                  }
  
@@ -387,5 +386,5 @@
 +
 +                  visible: !root.multiActive
                  Text {
+                   textFormat: Text.PlainText
                    text: row.kind === "menu" || row.kind === "link" ? "›" : ""
-                   color: row.hasCursor ? root.selectedText : root.foreground

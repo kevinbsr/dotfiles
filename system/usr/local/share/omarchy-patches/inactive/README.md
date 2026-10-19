@@ -12,3 +12,8 @@ Moved here on 2026-10-15, after the switch to the stable branch (r1832):
   bar natively on stable.
 - `bar-center-hover`, `menu-multiselect` — the dev versions. Stable versions
   with the same fixes live in the parent directory as `*-stable.patch`.
+
+On 2026-10-19, with the move to the omarchy 4.0.5 package, `tray-trusted-fork`
+went back to the parent directory (4.0.5 has the PluginBarApi facade again) and
+`bar-click-targets` moved to `../retired/` (fixed upstream). The other dev
+patches stay here.
