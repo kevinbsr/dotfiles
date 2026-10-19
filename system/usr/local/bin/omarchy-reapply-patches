@@ -36,21 +36,28 @@ patches=("$PATCH_DIR"/*.patch)
 for p in "${patches[@]}"; do
   name=$(basename "$p" .patch)
 
-  # --forward makes an already-applied patch a no-op rather than an offer to
-  # revert it, and the dry run keeps a patch that no longer fits from leaving
-  # half-written files behind. Both matter: this runs unattended inside a pacman
-  # transaction, where a half-patched menu is a broken desktop.
-  if ! patch -p1 -d "$ROOT" --forward --dry-run --silent <"$p" >/dev/null 2>&1; then
-    if patch -p1 -d "$ROOT" --reverse --dry-run --silent <"$p" >/dev/null 2>&1; then
-      log "$name: already applied"
-    else
-      log "$name: DOES NOT APPLY -- upstream moved, or the PR was merged."
-      log "$name: check it, then delete $p once it is no longer needed."
-    fi
+  # "Already applied" is asked first. Asking "does it apply forward?" first is
+  # not enough: when the patch's context also matches a second, untouched block
+  # -- as the horizontal and vertical bar centers did in omarchy 4.0.5 -- the
+  # forward check passes on an applied tree and the hunk lands a second time
+  # (2026-10-19).
+  if patch -p1 -d "$ROOT" --reverse --dry-run --silent <"$p" >/dev/null 2>&1; then
+    log "$name: already applied"
     continue
   fi
 
-  if patch -p1 -d "$ROOT" --forward --silent <"$p" >/dev/null 2>&1; then
+  # The dry run keeps a patch that no longer fits from leaving half-written
+  # files behind: this runs unattended inside a pacman transaction, where a
+  # half-patched menu is a broken desktop.
+  if ! patch -p1 -d "$ROOT" --forward --dry-run --silent <"$p" >/dev/null 2>&1; then
+    log "$name: DOES NOT APPLY -- upstream moved, or the PR was merged."
+    log "$name: check it, then delete $p once it is no longer needed."
+    continue
+  fi
+
+  # No .orig beside the patched file: one landing at an offset left
+  # Bar.qml.orig in the shell tree.
+  if patch -p1 -d "$ROOT" --forward --silent --no-backup-if-mismatch <"$p" >/dev/null 2>&1; then
     log "$name: reapplied"
   else
     log "$name: FAILED after a clean dry run -- the tree may be inconsistent"

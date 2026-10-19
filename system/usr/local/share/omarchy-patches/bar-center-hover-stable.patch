@@ -1,14 +1,13 @@
---- a/usr/share/omarchy/shell/plugins/bar/Bar.qml	2026-10-15 16:06:22.522524233 -0300
-+++ b/usr/share/omarchy/shell/plugins/bar/Bar.qml	2026-10-15 16:06:22.530955841 -0300
-@@ -1368,11 +1368,28 @@
+--- a/usr/share/omarchy/shell/plugins/bar/Bar.qml	2026-10-19 13:42:59.643097917 -0300
++++ b/usr/share/omarchy/shell/plugins/bar/Bar.qml	2026-10-19 13:42:59.684829746 -0300
+@@ -1565,11 +1565,27 @@
  
          CenterGestureArea { anchors.fill: parent }
  
 -        HoverHandler {
 -          onHoveredChanged: root.setCenterSectionHovered(hovered)
-+        // Local change (kevin, 2026-09-21): same fix as verticalCenterModules
-+        // below, applied to the horizontal case it was missing from. The
-+        // reveal hover used to fill this item, which fills the whole bar --
++        // Local change (kevin, 2026-09-21): the center reveal hover used to
++        // fill this item, which fills the whole bar --
 +        // and since revealing widens the indicator section, it can shift
 +        // where this content sits, un-hovering and re-hovering in a loop
 +        // that never settles on its own. Limit it to the span of the center
@@ -31,7 +30,7 @@
            visible: !centerRoot.hasAnchor
            entries: centerRoot.entries
            region: "center"
-@@ -1380,6 +1397,7 @@
+@@ -1577,6 +1593,7 @@
          }
  
          ModuleList {
@@ -39,7 +38,50 @@
            visible: centerRoot.hasAnchor
            entries: root.entriesBefore(centerRoot.entries, root.centerAnchor)
            region: "center"
-@@ -1396,6 +1414,7 @@
+@@ -1593,6 +1610,7 @@
+         }
+ 
+         ModuleList {
++          id: centerAfter
+           visible: centerRoot.hasAnchor
+           entries: root.entriesAfter(centerRoot.entries, root.centerAnchor)
+           region: "center"
+@@ -1610,11 +1628,24 @@
+ 
+         CenterGestureArea { anchors.fill: parent }
+ 
+-        HoverHandler {
+-          onHoveredChanged: root.setCenterSectionHovered(hovered)
++        // Local change (kevin, 2026-09-21): the vertical twin of the
++        // horizontal fix above -- the hover spans the center modules only,
++        // measured along y, so a height change caused by the indicators can
++        // no longer move this area's edge under a stationary pointer.
++        Item {
++          readonly property Item first: centerRoot.hasAnchor ? centerBefore : centerPlain
++          readonly property Item last: centerRoot.hasAnchor ? centerAfter : centerPlain
++          y: Math.min(first.y, centerAnchorModule.visible ? centerAnchorModule.y : first.y)
++          height: Math.max(last.y + last.height, centerAnchorModule.visible ? centerAnchorModule.y + centerAnchorModule.height : 0) - y
++          width: parent.width
++
++          HoverHandler {
++            onHoveredChanged: root.setCenterSectionHovered(hovered)
++          }
+         }
+ 
+         ModuleList {
++          id: centerPlain
+           visible: !centerRoot.hasAnchor
+           entries: centerRoot.entries
+           region: "center"
+@@ -1622,6 +1653,7 @@
+         }
+ 
+         ModuleList {
++          id: centerBefore
+           visible: centerRoot.hasAnchor
+           entries: root.entriesBefore(centerRoot.entries, root.centerAnchor)
+           region: "center"
+@@ -1638,6 +1670,7 @@
          }
  
          ModuleList {

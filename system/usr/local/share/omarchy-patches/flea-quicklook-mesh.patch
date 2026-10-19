@@ -1,34 +1,39 @@
---- a/usr/share/flea/ui/PreviewImage.qml
-+++ b/usr/share/flea/ui/PreviewImage.qml
+--- a/usr/share/flea/ui/PreviewImage.qml	2026-10-19 13:35:31.163289721 -0300
++++ b/usr/share/flea/ui/PreviewImage.qml	2026-10-19 13:35:31.200643596 -0300
 @@ -1,4 +1,5 @@
  import QtQuick
 +import Quickshell.Io
  import qs.Commons
  import "." as Flea
  import "js/Format.js" as Format
-@@ -12,7 +13,7 @@
-     property string path: ""
- 
-     // The same name the media and PDF panes give their unreadable state, so Preview.qml tests one property.
--    readonly property bool failed: picture.status === Image.Error
-+    readonly property bool failed: picture.status === Image.Error || root.renderFailed
-     // Every state is terminal: a decode ends Ready or Error, and a vanished file ends Error too.
-     readonly property string status: {
-         if (root.failed) return "This image could not be read."
-@@ -20,6 +21,65 @@
-     }
-     readonly property string name: root.path.substring(root.path.lastIndexOf("/") + 1)
- 
-+    // Local patch (flea-quicklook-mesh): an STL or 3MF carries an image icon but is no image, so the
-+    // picture drawn is a render /usr/local/bin/mesh-preview makes and caches; "" until it lands.
+@@ -21,7 +22,13 @@
+     readonly property bool raw: Kinds.isRaw(root.path)
+     property string embedded: ""
+     property bool embeddedAnswered: false
+-    readonly property string drawPath: root.raw ? root.embedded : root.path
++    // Local patch (flea-quicklook-mesh): an STL or 3MF is drawn through a 1024 px render that
++    // /usr/local/bin/mesh-preview makes and caches, the way a RAW is drawn through its embedded copy;
++    // the 256 px cache thumbnail stands in while it renders and stays if it fails.
 +    readonly property bool mesh: /\.(stl|3mf)$/i.test(root.path)
 +    property string rendered: ""
-+    property bool renderFailed: false
-+    onPathChanged: root.render()
++    property bool renderAnswered: false
++    readonly property string drawPath: root.raw ? root.embedded : root.mesh ? root.rendered : root.path
+     readonly property real areaHeight: root.raw ? root.height - Theme.chromeHeight : root.height
+ 
+     // Times the fit size, on the PDF's ladder; 1 is fit.
+@@ -34,7 +41,62 @@
+     readonly property alias band: band
+     readonly property alias fullPicture: sharp
+     // Another file is a new subject: the next one opens at fit.
+-    onPathChanged: root.zoom = PreviewKeys.PDF_ZOOM_MIN
++    onPathChanged: {
++        root.zoom = PreviewKeys.PDF_ZOOM_MIN
++        root.render()
++    }
 +
 +    function render() {
 +        root.rendered = ""
-+        root.renderFailed = false
++        root.renderAnswered = false
 +        // A render for the previous file is killed, and its exit starts the one now wanted.
 +        if (renderer.running) {
 +            renderer.stale = true
@@ -60,8 +65,8 @@
 +                return
 +            }
 +            if (renderer.exitCode === -1 || !renderer.streamDone) return
-+            root.renderFailed = renderer.exitCode !== 0 || renderer.answer.length === 0
-+            if (!root.renderFailed) root.rendered = renderer.answer
++            if (renderer.exitCode === 0) root.rendered = renderer.answer
++            root.renderAnswered = true
 +        }
 +
 +        stdout: StdioCollector {
@@ -77,17 +82,18 @@
 +            renderer.settle()
 +        }
 +    }
-+
-     // The letterbox ground the video pane uses: a photo almost never matches the surface's proportions.
-     Rectangle {
-         anchors.fill: parent
-@@ -39,7 +99,8 @@
-         height: root.vector ? root.height : implicitHeight * fit
-         visible: picture.status === Image.Ready
-         // Format.fileUri, not a concatenation: a # or a ? in the name would truncate a hand-built URI.
--        source: root.path.length > 0 ? Format.fileUri(root.path) : ""
-+        source: root.mesh ? (root.rendered.length > 0 ? Format.fileUri(root.rendered) : "")
-+                          : (root.path.length > 0 ? Format.fileUri(root.path) : "")
-         fillMode: root.vector ? Image.PreserveAspectFit : Image.Stretch
-         // A phone keeps a portrait photo's turn in EXIF, and Qt leaves it unapplied unless asked.
-         autoTransform: true
+ 
+     // The viewport's centre point stays put across a step; a picture still decoding or refused does not zoom in.
+     function zoomTo(next) {
+@@ -75,9 +137,9 @@
+     // The turn of those pixels, so the caption names the picture as drawn.
+     property int origOrient: 1
+     // A 3D model is refused with no decode attempt: Qt has no plugin for it, and each attempt logs a warning.
+-    readonly property bool decodable: !Kinds.isModel(root.path)
++    readonly property bool decodable: !Kinds.isModel(root.path) || root.mesh
+     // The final refused, by a decode Error, at once for a file Qt cannot decode, or once a RAW answered with no copy; the thumbnail below stands in when it decoded.
+-    readonly property bool pictureFailed: picture.status === Image.Error || (root.interimSettled && !root.decodable) || (root.raw && root.embeddedAnswered && root.embedded.length === 0)
++    readonly property bool pictureFailed: picture.status === Image.Error || (root.interimSettled && !root.decodable) || (root.raw && root.embeddedAnswered && root.embedded.length === 0) || (root.mesh && root.renderAnswered && root.rendered.length === 0)
+     readonly property bool fallbackShown: root.pictureFailed && root.interimReady
+     readonly property string name: root.path.substring(root.path.lastIndexOf("/") + 1)
+ 
