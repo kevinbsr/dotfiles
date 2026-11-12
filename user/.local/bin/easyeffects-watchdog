@@ -1,0 +1,200 @@
+#!/usr/bin/env python3
+"""Restart EasyEffects when audio goes in but nothing comes out.
+
+WHY THIS EXISTS
+
+On 2026-11-11 EasyEffects had been running for 1 day 18 h when its effect
+chain silently stopped passing audio: Brave was playing into easyeffects_sink
+(peak 21268) and the output that feeds combine_speakers was digital silence
+(peak 0). No crash, no log line, every link still in place, so systemd's
+Restart=on-failure had nothing to react to. `systemctl --user restart
+easyeffects` fixed it immediately.
+
+This daemon measures both ends of the chain and does that restart for you.
+
+HOW IT DECIDES
+
+Every CHECK_INTERVAL seconds, while easyeffects_sink is RUNNING, it records
+SAMPLE_SECONDS from two monitors at the same time:
+  - easyeffects_sink            (what apps send in)
+  - the sink EasyEffects feeds  (found from the live links, normally
+                                 combine_speakers)
+"Stuck" means input peak >= INPUT_MIN and output peak <= OUTPUT_MAX. The
+Laptop preset's gate closes below -40 dBFS; INPUT_MIN is about -24 dBFS, so a
+quiet passage the gate is allowed to mute never counts. Paused players send
+silence and never count either.
+
+One stuck sample starts fast rechecks; STRIKES in a row trigger a restart, so
+a real stall costs roughly 10 s of silence and a single odd sample costs
+nothing. After a restart it waits COOLDOWN. If it has to restart
+MAX_RESTARTS times within RESTART_WINDOW, the problem is not a one-off stall:
+it stops touching EasyEffects and sends a notification instead of looping.
+"""
+
+import array
+import os
+import subprocess
+import sys
+import tempfile
+import time
+import wave
+
+EE_SINK = "easyeffects_sink"
+EE_LAST_NODE = "ee_soe_output_level"   # last stage of EasyEffects' output chain
+EE_UNIT = "easyeffects.service"
+
+CHECK_INTERVAL = 10      # s between checks while healthy
+RECHECK_INTERVAL = 2     # s between checks after a stuck sample
+SAMPLE_SECONDS = 1.2
+INPUT_MIN = 2000         # s16 peak, ~ -24 dBFS
+OUTPUT_MAX = 30          # s16 peak, ~ -60 dBFS
+STRIKES = 3
+COOLDOWN = 60
+MAX_RESTARTS = 3
+RESTART_WINDOW = 600
+
+RUNTIME = os.environ.get("XDG_RUNTIME_DIR") or tempfile.gettempdir()
+
+
+def log(msg):
+    print(msg, flush=True)
+
+
+def run(cmd, timeout=5):
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True,
+                              timeout=timeout).stdout
+    except (subprocess.SubprocessError, OSError):
+        return ""
+
+
+def unit_active():
+    return run(["systemctl", "--user", "is-active", EE_UNIT]).strip() == "active"
+
+
+def ee_sink_running():
+    for line in run(["pactl", "list", "sinks", "short"]).splitlines():
+        f = line.split("\t")
+        if len(f) >= 5 and f[1] == EE_SINK:
+            return f[4] == "RUNNING"
+    return False
+
+
+def ee_output_sink():
+    """Sink that EasyEffects' last stage is linked to, e.g. combine_speakers."""
+    lines = run(["pw-link", "-l"]).splitlines()
+    for i, line in enumerate(lines):
+        if line.strip() == f"{EE_LAST_NODE}:output_FL":
+            for nxt in lines[i + 1:]:
+                s = nxt.strip()
+                if not s.startswith(("|->", "|<-")):
+                    break
+                if s.startswith("|->"):
+                    return s[3:].strip().rsplit(":", 1)[0]
+    return None
+
+
+def peaks(targets):
+    """Record all targets' monitors concurrently; return {target: peak}."""
+    procs, files = {}, {}
+    for t in targets:
+        path = os.path.join(RUNTIME, f"ee-watchdog-{t}.wav")
+        files[t] = path
+        procs[t] = subprocess.Popen(
+            ["pw-record", "--target", t, "--format", "s16", "--channels", "2",
+             "-P", "{ stream.capture.sink=true node.dont-reconnect=true }",
+             path],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    time.sleep(SAMPLE_SECONDS)
+    out = {}
+    for t, p in procs.items():
+        p.terminate()
+        try:
+            p.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            p.kill()
+            p.wait()
+        try:
+            with wave.open(files[t]) as w:
+                a = array.array("h", w.readframes(w.getnframes()))
+            # Skip the first 50 ms: a fresh capture stream can start with a
+            # few frames of zeros before the graph delivers real data.
+            a = a[4800:]
+            out[t] = max(map(abs, a)) if a else None
+        except (OSError, EOFError, wave.Error):
+            out[t] = None
+        finally:
+            try:
+                os.unlink(files[t])
+            except OSError:
+                pass
+    return out
+
+
+def notify(summary, body, urgency="normal"):
+    run(["notify-send", "-a", "Audio", "-u", urgency, summary, body])
+
+
+def main():
+    strikes = 0
+    restarts = []
+    gave_up = False
+    log("easyeffects-watchdog started")
+    while True:
+        time.sleep(RECHECK_INTERVAL if strikes else CHECK_INTERVAL)
+
+        if not unit_active() or not ee_sink_running():
+            strikes = 0
+            continue
+        out_sink = ee_output_sink()
+        if not out_sink:
+            strikes = 0
+            continue
+
+        p = peaks([EE_SINK, out_sink])
+        pin, pout = p.get(EE_SINK), p.get(out_sink)
+        if pin is None or pout is None:
+            strikes = 0
+            continue
+
+        if pin >= INPUT_MIN and pout <= OUTPUT_MAX:
+            strikes += 1
+            log(f"stuck sample {strikes}/{STRIKES}: in={pin} out={pout} ({out_sink})")
+        else:
+            if strikes:
+                log(f"recovered on its own: in={pin} out={pout}")
+            strikes = 0
+            continue
+
+        if strikes < STRIKES:
+            continue
+        strikes = 0
+
+        now = time.monotonic()
+        restarts = [t for t in restarts if now - t < RESTART_WINDOW]
+        if len(restarts) >= MAX_RESTARTS:
+            if not gave_up:
+                gave_up = True
+                log("too many restarts; leaving EasyEffects alone")
+                notify("EasyEffects keeps going silent",
+                       f"Restarted {MAX_RESTARTS}x in {RESTART_WINDOW // 60} min "
+                       "and it still drops audio. Watchdog paused; check "
+                       "journalctl --user -u easyeffects-watchdog.",
+                       "critical")
+            continue
+        gave_up = False
+
+        log(f"restarting {EE_UNIT}: in={pin} out={pout} ({out_sink})")
+        run(["systemctl", "--user", "restart", EE_UNIT], timeout=30)
+        restarts.append(now)
+        notify("EasyEffects restarted",
+               "Audio was going in but not coming out. "
+               "Press play again if a player stopped.")
+        time.sleep(COOLDOWN)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        sys.exit(0)

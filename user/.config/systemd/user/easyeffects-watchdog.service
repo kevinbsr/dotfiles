@@ -1,0 +1,18 @@
+[Unit]
+Description=Restart EasyEffects when its effect chain goes silent
+# EasyEffects can stall without crashing: audio goes into easyeffects_sink and
+# silence comes out (2026-11-11, after 1 day 18 h of uptime). Restart= on
+# easyeffects.service cannot see that. This watcher measures both ends.
+# Details in the script header.
+After=easyeffects.service
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 -I %h/.local/bin/easyeffects-watchdog
+Restart=on-failure
+RestartSec=10
+Nice=10
+
+[Install]
+WantedBy=graphical-session.target
