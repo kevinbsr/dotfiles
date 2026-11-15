@@ -1,35 +1,32 @@
---- a/usr/share/omarchy/shell/plugins/services/nightlight/Service.qml
-+++ b/usr/share/omarchy/shell/plugins/services/nightlight/Service.qml
-@@ -54,7 +54,18 @@
+--- a/usr/share/omarchy/shell/plugins/services/nightlight/Service.qml	2026-11-15 04:31:38.417468194 -0300
++++ b/usr/share/omarchy/shell/plugins/services/nightlight/Service.qml	2026-11-15 04:31:38.429963888 -0300
+@@ -57,7 +57,16 @@
  
    Process {
      id: statusProbe
 -    command: ["hyprctl", "hyprsunset", "temperature"]
-+    // Local change (kevin, 2026-09-23): temperature alone does not say whether
-+    // the filter is on. hyprsunset carries two independent states -- a
-+    // temperature, and an "identity" flag meaning "apply nothing". The 07:00
-+    // profile in hyprsunset.conf sets identity = true and leaves the
-+    // temperature at last night's 4000, so reading temperature alone reported
-+    // night light as on all day. Measured: identity true + temperature 4000 =
-+    // filter off; applying any temperature clears identity. Report the day
-+    // temperature while identity is on, which is what the rest of this file
-+    // already means by "off".
++    // Local change (kevin, 2026-09-23; rebased for omarchy 4.5): temperature
++    // alone does not say whether the filter is on. hyprsunset carries two
++    // independent states -- a temperature, and an "identity" flag meaning
++    // "apply nothing". The 07:00 profile in hyprsunset.conf sets identity = true
++    // and leaves the temperature at last night's 4000, so reading temperature
++    // alone reported night light as on all day. Report the day temperature
++    // while identity is on, which is what the rest of this file means by "off".
 +    command: ["bash", "-c",
 +      "if [ \"$(hyprctl hyprsunset identity get 2>/dev/null)\" = true ]; then echo "
 +      + root.dayTemperature + "; else hyprctl hyprsunset temperature; fi"]
      stdout: StdioCollector {
        waitForEnd: true
        onStreamFinished: {
-@@ -85,6 +96,19 @@
+@@ -88,6 +97,18 @@
  
    Component.onCompleted: refresh()
  
-+  // Local change (kevin, 2026-09-22): hyprsunset switches profiles on its own
-+  // schedule (07:00 identity, 18:00 4000 K) without telling the shell, so the
-+  // state read at startup or after a click went stale -- the indicator stayed
-+  // lit all morning after the 07:00 switch, and a click then "disabled" a night
-+  // light that was already off. Re-read it every minute; skip while a click is
-+  // still being applied so the probe cannot read the old temperature mid-change.
++  // Local change (kevin, 2026-09-22; rebased for omarchy 4.5): hyprsunset
++  // switches profiles on its own schedule (07:00 identity, 18:00 4000 K)
++  // without telling the shell, so the state read at startup or after a click
++  // went stale. Re-read it every minute; skip while a click is still being
++  // applied so the probe cannot read the old temperature mid-change.
 +  Timer {
 +    interval: 60000
 +    running: true
@@ -37,6 +34,6 @@
 +    onTriggered: if (!applyProcess.running) root.refresh()
 +  }
 +
-   IpcHandler {
+   ShellIpc {
      target: "nightlight"
  

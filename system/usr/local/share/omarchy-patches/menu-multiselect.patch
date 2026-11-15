@@ -1,0 +1,64 @@
+--- a/usr/bin/omarchy-menu-plugin	2026-11-15 04:34:15.111801544 -0300
++++ b/usr/bin/omarchy-menu-plugin	2026-11-15 04:34:15.123224440 -0300
+@@ -10,10 +10,14 @@
+ PLUGIN_ICON=$'\U000f0431'
+ 
+ case "${1:-}" in
+-  enable) filter='(.enabled | not)' ;;
+-  disable) filter='.canDisable and .enabled' ;;
+-  clone) filter='.firstParty and (.id as $id | ($plugins | map(.clonedFrom // "") | index($id)) == null)' ;;
+-  remove) filter='(.firstParty | not)' ;;
++  # Local change (kevin, 2026-09; rebased for omarchy 4.5, see PR #11057):
++  # enabling, disabling and removing are things people do to a handful of
++  # plugins in one sitting, so those pick many through the menu's own
++  # --multiple. Cloning drops into an editor on the way out and picks one.
++  enable) filter='(.enabled | not)'; multi=1 ;;
++  disable) filter='.canDisable and .enabled'; multi=1 ;;
++  clone) filter='.firstParty and (.id as $id | ($plugins | map(.clonedFrom // "") | index($id)) == null)'; multi=0 ;;
++  remove) filter='(.firstParty | not)'; multi=1 ;;
+   *)
+     echo "Usage: omarchy-menu-plugin <enable|disable|clone|remove>" >&2
+     exit 1
+@@ -38,17 +42,35 @@
+    | \$icon + \"\\t\" + .name + \"\\t\" + .id" <<<"$plugins")
+ [[ -n $rows ]] || { omarchy-notification-send "$none"; exit 0; }
+ 
+-selection=$(omarchy-menu-select "$title" <<<"$rows") || exit 0
+-[[ -n $selection ]] || exit 0
+-
+-id=$(cut -f2 <<<"$selection")
+-[[ -n $id ]] || exit 1
++ids=()
++if (( multi )); then
++  # --multiple answers with a JSON array of "<name><TAB><id>" rows.
++  selection=$(omarchy-menu-select "$title" -- --multiple <<<"$rows") || exit 0
++  [[ -n $selection ]] || exit 0
++  mapfile -t ids < <(jq -r '.[] | split("\t") | .[1] // empty' <<<"$selection")
++else
++  selection=$(omarchy-menu-select "$title" <<<"$rows") || exit 0
++  [[ -n $selection ]] || exit 0
++  ids=("$(cut -f2 <<<"$selection")")
++fi
++(( ${#ids[@]} )) && [[ -n ${ids[0]} ]] || exit 0
++id=${ids[0]}
+ 
+ if [[ $1 == "clone" ]]; then
+   omarchy-launch-floating-terminal-with-presentation \
+     "omarchy-plugin-clone $(printf '%q' "$id") --edit"
+ elif [[ $1 == "remove" ]]; then
+-  omarchy-launch-floating-terminal-with-presentation "omarchy-plugin-remove $(printf '%q' "$id")"
++  # One terminal for the batch, one confirmation per plugin inside it.
++  command=""
++  for id in "${ids[@]}"; do
++    command+="${command:+; }omarchy-plugin-remove $(printf '%q' "$id")"
++  done
++  omarchy-launch-floating-terminal-with-presentation "$command"
+ else
+-  "omarchy-plugin-$1" "$id"
++  failed=()
++  for id in "${ids[@]}"; do
++    "omarchy-plugin-$1" "$id" || failed+=("$id")
++  done
++  (( ${#failed[@]} == 0 )) ||
++    omarchy-notification-send "Could not $1 ${#failed[@]} plugin(s)" "${failed[*]}"
+ fi
