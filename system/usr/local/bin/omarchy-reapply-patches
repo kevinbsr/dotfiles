@@ -27,6 +27,39 @@ ROOT=/
 
 log() { printf 'omarchy-reapply-patches: %s\n' "$1"; }
 
+# Patches that did not land this run. The log lines alone were not enough:
+# after omarchy 4.0.6 -> 4.5.0 (2026-11-05) seven of nine patches stopped
+# applying and the warnings sat unread in the pacman output for ten days.
+broken=()
+
+# One critical desktop notification per open graphical session. This runs as
+# root inside a pacman transaction, with no session bus of its own, so it
+# reaches each logged-in user's bus as that user. Run by hand as a normal user,
+# it notifies that user directly.
+notify_broken() {
+  ((${#broken[@]})) || return 0
+  local title="Omarchy: ${#broken[@]} local patch(es) no longer apply"
+  local body
+  body="$(printf '%s\n' "${broken[@]}")
+Check with: pkexec /usr/local/bin/omarchy-reapply-patches
+Patches live in $PATCH_DIR"
+
+  if ((EUID != 0)); then
+    timeout 5 notify-send -a "Omarchy patches" -u critical "$title" "$body" 2>/dev/null || true
+    return 0
+  fi
+
+  local bus uid user
+  for bus in /run/user/*/bus; do
+    [[ -S $bus ]] || continue
+    uid=$(basename "$(dirname "$bus")")
+    ((uid >= 1000)) || continue
+    user=$(id -nu "$uid" 2>/dev/null) || continue
+    timeout 5 runuser -u "$user" -- env DBUS_SESSION_BUS_ADDRESS="unix:path=$bus" \
+      notify-send -a "Omarchy patches" -u critical "$title" "$body" 2>/dev/null || true
+  done
+}
+
 [[ -d $PATCH_DIR ]] || exit 0
 
 shopt -s nullglob
@@ -52,6 +85,7 @@ for p in "${patches[@]}"; do
   if ! patch -p1 -d "$ROOT" --forward --dry-run --silent <"$p" >/dev/null 2>&1; then
     log "$name: DOES NOT APPLY -- upstream moved, or the PR was merged."
     log "$name: check it, then delete $p once it is no longer needed."
+    broken+=("$name: does not apply")
     continue
   fi
 
@@ -61,5 +95,8 @@ for p in "${patches[@]}"; do
     log "$name: reapplied"
   else
     log "$name: FAILED after a clean dry run -- the tree may be inconsistent"
+    broken+=("$name: FAILED, tree may be inconsistent")
   fi
 done
+
+notify_broken
