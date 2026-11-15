@@ -23,24 +23,15 @@ o.bind("SUPER + RETURN", "Terminal", "/home/kevin/.local/bin/tmux-terminal")
 hl.unbind("SUPER + ALT + RETURN")
 o.bind("SUPER + ALT + RETURN", "Terminal (plain)", { omarchy = "terminal" })
 
--- Scratchpad genérico separado do Quake console do Omarchy. O console
--- continua usando special:scratchpad; o scratchpad pessoal usa special:stash.
-hl.unbind("SUPER + S")
-hl.unbind("SUPER + ALT + S")
-hl.unbind("SUPER + grave")
-hl.unbind("SUPER + SHIFT + grave")
-
-o.bind("SUPER + S", "Toggle scratchpad", hl.dsp.workspace.toggle_special("stash"))
+-- Quake console on the key left of 1, matched by keycode. Omarchy binds it as
+-- "grave", but with kb_layout us / kb_variant intl that key produces the
+-- dead_grave keysym, so the default binding never fires. Same actions as
+-- Omarchy's bindings/tiling.lua.
+o.bind("SUPER + code:49", "Toggle Quake console", hl.dsp.workspace.toggle_special("qconsole"))
 o.bind(
-	"SUPER + ALT + S",
-	"Move window to scratchpad",
-	hl.dsp.window.move({ workspace = "special:stash", follow = false })
-)
-o.bind("SUPER + grave", "Toggle Quake console", hl.dsp.workspace.toggle_special("scratchpad"))
-o.bind(
-	"SUPER + SHIFT + grave",
+	"SUPER + SHIFT + code:49",
 	"Move window to Quake console",
-	hl.dsp.window.move({ workspace = "special:scratchpad", follow = false })
+	hl.dsp.window.move({ workspace = "special:qconsole", follow = false })
 )
 
 -- Apps que substituem os defaults do Omarchy.
@@ -53,10 +44,9 @@ o.bind("SUPER + SHIFT + W", "Typora", { launch = "typora --enable-wayland-ime" }
 hl.unbind("SUPER + SHIFT + SLASH")
 o.bind("SUPER + SHIFT + SLASH", "Passwords", { launch = "bitwarden-desktop %u" })
 
--- IA: Gemini no lugar do ChatGPT, Claude num atalho próprio.
+-- IA: Gemini no lugar do ChatGPT.
 hl.unbind("SUPER + SHIFT + A")
 o.bind("SUPER + SHIFT + A", "Gemini", { webapp = "https://gemini.google.com" })
-o.bind("SUPER + SHIFT + CTRL + A", "Claude", { webapp = "https://claude.ai/new" })
 
 -- Google Workspace no lugar do HEY.
 hl.unbind("SUPER + SHIFT + C")
@@ -78,7 +68,6 @@ o.bind("SUPER + SHIFT + S", "FIAP", { webapp = "https://on.fiap.com.br/" })
 
 -- Áudio. Caminhos absolutos: scripts em ~/.local/bin não são resolvidos de
 -- forma confiável pelo dispatcher de keybinds.
-o.bind("SUPER + M", "Mute microphone", "/home/kevin/.local/bin/omarchy-audio-input-mute")
 o.bind("SUPER + XF86AudioMicMute", "Switch audio input", "/home/kevin/.local/bin/omarchy-audio-input-switch")
 o.bind("SUPER + CTRL + ALT + M", "Switch audio input", "/home/kevin/.local/bin/omarchy-audio-input-switch")
 

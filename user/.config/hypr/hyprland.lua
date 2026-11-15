@@ -31,7 +31,7 @@ require("default.hypr.toggles")
 -- Spotify abre direto no scratchpad, sem roubar o foco.
 o.window({ class = "^[Ss]potify$" }, {
   suppress_event = "activate",
-  workspace = "special:stash silent",
+  workspace = "special:scratchpad silent",
 })
 
 -- Added by hyprmoncfg: its generated monitor rules load last, so nothing before this can override the applied layout.
