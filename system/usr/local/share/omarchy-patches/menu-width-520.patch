@@ -1,0 +1,14 @@
+Local: make every Omarchy menu card 520 wide instead of 300 (Kevin, 2026-11-15).
+Upstream only widens the screenrecord, font and kernel menus; labels in custom
+menus (omarchy-menu.jsonc) were truncated. No upstream PR -- personal preference.
+--- a/usr/share/omarchy/shell/plugins/menu/Menu.qml	2026-11-15 04:28:13.662335062 -0300
++++ b/usr/share/omarchy/shell/plugins/menu/Menu.qml	2026-11-15 04:28:13.678869850 -0300
+@@ -135,7 +135,7 @@
+   property int dividerHeight: Style.space(17)
+   property bool searchDivider: false
+   property int layoutSerial: 0
+-  property int cardWidth: Math.min(root.dmenuActive ? Style.space(root.dmenuWidth) : ((root.activeMenu === "trigger.capture.screenrecord" || root.activeMenu === "appearance.font" || root.activeMenu === "update.kernel") ? Style.space(520) : Style.space(300)), panel.width - Style.gapsOut * 2)
++  property int cardWidth: Math.min(root.dmenuActive ? Style.space(root.dmenuWidth) : ((root.activeMenu === "trigger.capture.screenrecord" || root.activeMenu === "appearance.font" || root.activeMenu === "update.kernel") ? Style.space(520) : Style.space(520)), panel.width - Style.gapsOut * 2)
+   property int visibleRowsHeight: root.dmenuActive ? dmenuRowListHeight(layoutSerial, displayModel.count, filterText) : rowListHeight(layoutSerial, displayModel.count, filterText, searchDivider)
+   property int cardHeight: root.dmenuActive
+     ? Math.min(contentMargin * 2 + headerHeight + (mode === "input" ? 0 : contentSpacing + visibleRowsHeight), panel.height - Style.gapsOut * 2)
